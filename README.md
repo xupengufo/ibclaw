@@ -6,6 +6,15 @@
 
 ---
 
+### 🔥 实际效果演示
+
+<p align="center">
+  <img src="1.png" width="48%" />
+  <img src="2.png" width="48%" />
+</p>
+
+---
+
 ## ⚡ 一键安装（推荐）
 
 直接把以下内容发送给你的 OpenClaw 机器人：
