@@ -8,10 +8,9 @@
 
 ### 🔥 实际效果演示
 
-<p align="center">
-  <img src="1.png" width="48%" />
-  <img src="2.png" width="48%" />
-</p>
+![IBKR 持仓查询演示](1.png)
+
+![IBKR 深度投研分析演示](2.png)
 
 ---
 
