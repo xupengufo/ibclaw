@@ -72,7 +72,7 @@ unzip clientportal.gw.zip -d clientportal
 IBEAM_ACCOUNT=你的IBKR用户名
 IBEAM_PASSWORD='你的密码'
 IBEAM_GATEWAY_DIR=/Users/$USER/trading/clientportal
-IBEAM_GATEWAY_BASE_URL=https://localhost:5000
+IBEAM_GATEWAY_BASE_URL=https://localhost:5001
 ```
 
 ### 4. 启动 Gateway

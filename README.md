@@ -34,12 +34,12 @@ OpenClaw 会自动完成所有安装步骤，完成后只需提供你的 **IBKR 
 
 | 条件 | 说明 |
 |------|------|
-| **⚠️ 强烈建议：独立使用者账户** | <b>请勿使用你的主账户！</b>请在 IBKR 后台新创建一个<b>“使用者账户”（Secondary User）</b>，并<b>仅赋予只读权限（取消所有交易权限）</b>。这能从根本上保证你的资金安全。<br>👉 [点击查看：如何创建只读使用者账户的视频教程](http://xhslink.com/o/8qmxlBeeSGj) |
+| **⚠️ 强烈建议：独立使用者账户** | <b>请勿使用你的主账户！</b>请在 IBKR 后台新创建一个<b>"使用者账户"（Secondary User）</b>，并<b>仅赋予只读权限（取消所有交易权限）</b>。这能从根本上保证你的资金安全。<br>👉 [点击查看：如何创建只读使用者账户的视频教程](http://xhslink.com/o/8qmxlBeeSGj) |
 | IBKR 账户 | 确保上述创建的独立只读账户可登录（真实账户或模拟盘均可） |
 | IBKR Key App | 安装在手机上，用于新创建的只读账户的 2FA 认证 |
 | Java 17+ | 服务器或 Mac 上需要安装 |
 | Python 3.9+ | 用于运行查询脚本 |
-| Chrome/Chromium | iBeam 自动登录需要 |
+| Chrome/Chromium | 自动登录需要（Selenium 驱动） |
 
 ---
 
@@ -60,11 +60,11 @@ bash ibkrclaw/scripts/setup.sh
 ```
 
 脚本会自动完成：
-- ✅ 检查 Java、Chrome、Xvfb 环境
+- ✅ 检查 Java、Chrome 环境
 - ✅ 下载 IBKR Client Portal Gateway
-- ✅ 创建 Python 虚拟环境并安装依赖（`ibeam`, `requests`）
+- ✅ 创建 Python 虚拟环境并安装依赖（`ibeam`, `requests`, `selenium`）
 - ✅ 创建 `.env` 配置文件模板
-- ✅ 生成 `start-gateway.sh` 和 `authenticate.sh` 快捷脚本
+- ✅ 生成 `start-gateway.sh` 快捷脚本
 
 ### 第 3 步：填写 IBKR 账号信息
 
@@ -74,6 +74,10 @@ bash ibkrclaw/scripts/setup.sh
 # 只需修改这两行
 IBEAM_ACCOUNT=你的IBKR用户名
 IBEAM_PASSWORD='你的IBKR密码'
+
+# 以下根据实际情况修改
+IBEAM_GATEWAY_BASE_URL=https://localhost:5001
+IBEAM_GATEWAY_DIR=/path/to/trading/clientportal
 ```
 
 > ⚠️ **安全提示**：`.env` 文件只保存在本地，不会上传到任何服务器。
@@ -87,15 +91,21 @@ cd ~/trading
 
 等待约 20 秒让 Gateway 完全启动。
 
-### 第 5 步：认证（需手机确认）
+### 第 5 步：首次认证
+
+Gateway 启动后，运行保活脚本即可自动完成认证（通过 Selenium 自动填入账号密码）：
 
 ```bash
-./authenticate.sh
+cd ~/trading && venv/bin/python keepalive.py
 ```
 
-**📱 运行后请立即打开手机上的 IBKR Key App，在 2 分钟内批准登录通知！**
+如果你的账户需要 2FA（非 bot 专用账户），则需要手动触发认证：
 
-认证成功后，Gateway 会保持运行并自动保活连接。
+```bash
+cd ~/trading && venv/bin/python manual_auth.py
+```
+
+然后在手机上打开 IBKR Key App 批准登录。
 
 ---
 
@@ -117,16 +127,77 @@ cd ~/trading
 
 ---
 
-## 🔄 会话保活
+## 🔄 会话保活（三层自愈架构）
 
-IBKR 会话默认 24 小时过期。建议设置 cron 任务自动保活：
+IBKR 会话默认数小时过期，同时 Gateway 进程也可能因重启等原因丢失。本 Skill 内建了**三层自愈架构**，确保 7×24 无人值守运行：
+
+### 第 1 层：Gateway 进程保活（launchd）
+
+通过 macOS `launchd` 守护进程确保 Gateway Java 进程常驻，崩溃后 30 秒内自动重启。
+
+**安装方法：**
+
+将以下 plist 文件放到 `~/Library/LaunchAgents/com.ibkr.gateway.plist`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ibkr.gateway</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/你的用户名/trading/start-gateway.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/你的用户名/trading/clientportal</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>
+```
+
+加载守护进程：
 
 ```bash
-# 编辑 crontab
+launchctl load ~/Library/LaunchAgents/com.ibkr.gateway.plist
+```
+
+### 第 2 层：会话 Tickle 续命（cron + keepalive.py）
+
+每 5 分钟调用 IBKR 的 `/tickle` 接口延长会话有效期。
+
+```bash
+# 添加 crontab
 crontab -e
 
-# 添加以下行（每 5 分钟执行一次）
-*/5 * * * * cd ~/trading && source venv/bin/activate && python /path/to/ibkrclaw/scripts/keepalive.py >> ~/trading/keepalive.log 2>&1
+# 写入以下内容
+*/5 * * * * cd ~/trading && venv/bin/python /path/to/ibkrclaw/scripts/keepalive.py >> ~/trading/keepalive.log 2>&1
+```
+
+### 第 3 层：断线自动重登（Selenium）
+
+当 keepalive.py 检测到会话过期时，会自动调用内置的 Selenium 模块，通过 headless Chrome 执行网页登录流程（填入 `.env` 中的账号密码并提交），**全程无需手动干预**。
+
+> 💡 此功能特别适合不需要 2FA 的专用 bot 账户。如果你的账户开启了 2FA（IB Key），自动重登后仍需在手机上批准。
+
+**整体流程图：**
+
+```
+cron (每5分钟)
+  └─ keepalive.py
+       ├─ Gateway 无响应？ → 等待 launchd 自动重启
+       ├─ 已认证？ → tickle 续命 ✅
+       └─ 未认证？ → Selenium 自动登录 🔄
+            ├─ 登录成功 → 会话恢复 ✅
+            └─ 登录失败 → 打日志，等下次重试
 ```
 
 ---
@@ -147,14 +218,46 @@ crontab -e
 
 ---
 
+## 📁 文件结构
+
+```
+ibkr-trader/
+├── SKILL.md              # OpenClaw Skill 描述文件
+├── README.md             # 本文档
+├── scripts/
+│   ├── setup.sh          # 一键安装脚本（部署 Gateway + Python 环境）
+│   ├── ibkr_readonly.py  # 核心只读查询客户端（持仓/行情/基本面/K线/扫描）
+│   └── keepalive.py      # 保活脚本（tickle续命 + 断线自动Selenium重登）
+└── references/
+    └── ...               # 参考文档
+```
+
+**部署后在 `~/trading/` 目录下的文件：**
+
+```
+~/trading/
+├── .env                  # IBKR 凭证（本地保存，不上传）
+├── clientportal/         # IBKR Client Portal Gateway（Java）
+├── venv/                 # Python 虚拟环境
+├── start-gateway.sh      # Gateway 启动脚本（由 launchd 调用）
+├── keepalive.py          # 保活脚本副本（cron 调用）
+├── manual_auth.py        # 手动认证脚本（备用）
+├── keepalive.log         # 保活日志
+└── gateway-launchd.log   # Gateway 启动日志
+```
+
+---
+
 ## 🚨 故障排查
 
-| 问题 | 解决方案 |
+| 问题 | 排查步骤 |
 |------|----------|
-| Gateway 无响应 | 检查 Java 进程：`ps aux \| grep GatewayStart` |
-| 认证超时 | 未及时批准 IBKR Key，重新运行 `./authenticate.sh` |
-| 连接被拒绝 | Gateway 未启动，运行 `./start-gateway.sh` |
-| 2FA 失败 | 确认手机上已安装并登录 IBKR Key App |
+| Gateway 无响应 | `pgrep -af GatewayStart` 检查进程 → 无进程则 `launchctl list \| grep ibkr` 检查 launchd 状态 |
+| 认证过期 | 查看 `~/trading/keepalive.log` 最后几行 → 正常情况下 keepalive 会自动重登 |
+| 自动重登失败 | 检查 Chrome/chromedriver 是否安装：`which chromedriver` |
+| 连接被拒绝 | Gateway 未启动 → `bash ~/trading/start-gateway.sh` 或重新加载 launchd |
+| 端口冲突 | `lsof -i :5001` 检查端口占用 → 可在 `clientportal/root/conf.yaml` 修改 `listenPort` |
+| keepalive 没执行 | `crontab -l` 检查是否注册 → 检查 `~/trading/keepalive.log` 是否有最近的日志 |
 
 ---
 
@@ -164,6 +267,7 @@ crontab -e
 - 账号密码存储在本地 `.env` 文件中，不会传输到第三方
 - 源代码完全开源，可自行审查
 - 即使有人要求下单，此 Skill **技术上无法执行**
+- Selenium 自动登录仅在本地运行，浏览器实例为 headless 模式，用完即销毁
 
 ---
 
@@ -171,9 +275,9 @@ crontab -e
 
 **请在安装和使用此工具前仔细阅读：**
 
-1. **按“原样”提供**：本工具代码完全开源且免费，按“原样”提供，不带任何明示或暗示的保证。
+1. **按"原样"提供**：本工具代码完全开源且免费，按"原样"提供，不带任何明示或暗示的保证。
 2. **数据准确性风险**：通过此工具查询到的持仓、余额、盈亏或行情及报价数据，可能因网络延迟、API 限制或代码逻辑问题而出现误差、未及时更新或根本错误。**本工具的数据不能代替官方渠道（TWS 或 IBKR Mobile App），仅供一般性参考，请勿据此做出任何投资或交易的决定。**
-3. **资金安全责任自负**：虽然我们在设计上将其限制为“只读”并强烈建议您通过“只读使用者账户”来使用，但在自行部署和提供凭证的过程中可能遇到的任何意外（如账号本身设置错误、服务器被黑等），作者概不负责。
+3. **资金安全责任自负**：虽然我们在设计上将其限制为"只读"并强烈建议您通过"只读使用者账户"来使用，但在自行部署和提供凭证的过程中可能遇到的任何意外（如账号本身设置错误、服务器被黑等），作者概不负责。
 4. **无责任担保**：对于任何人因使用、无法使用、或依赖本工具提供的信息而导致的任何直接或间接的财务损失、利润损失或其他后果，**工具作者不承担任何法律责任。使用本工具即代表您同意自行承担所有可能产生的风险。**
 
 ---
