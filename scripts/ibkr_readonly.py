@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """
-IBKR Read-Only Client - 进阶分析版本
-查询持仓、余额、实时行情、个股基本面、历史K线、全市场扫描等。
+IBKR Read-Only Client - ib_insync 版本
+通过 IB Gateway (socket API) 查询持仓、余额、实时行情、基本面、历史K线等。
 安全特性：此脚本不包含任何下单、修改订单、取消订单的功能。
+
+依赖：ib_insync (pip install ib_insync)
+连接：IB Gateway 端口 4001 (live) 或 4002 (paper)
 """
 
-import requests
-import urllib3
-import json
 import os
+import math
 import time
-from datetime import datetime
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from ib_insync import *
 
 # Configuration
-BASE_URL = os.getenv("IBEAM_GATEWAY_BASE_URL", "https://localhost:5001")
-ACCOUNT_ID = os.getenv("IBKR_ACCOUNT_ID", "")
+IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
+IB_PORT = int(os.getenv("IB_PORT", "4001"))
+IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "1"))
+
 
 @dataclass
 class Position:
@@ -31,6 +34,7 @@ class Position:
     unrealized_pnl: float
     pnl_percent: float
 
+
 @dataclass
 class Quote:
     conid: int
@@ -41,6 +45,7 @@ class Quote:
     volume: int
     change: float
     change_pct: float
+
 
 @dataclass
 class FundamentalData:
@@ -57,67 +62,88 @@ class FundamentalData:
     low_52w: str
     avg_volume: str
 
+
 class IBKRReadOnlyClient:
     """
-    IBKR 只读客户端 - 数据与投研版
+    IBKR 只读客户端 - ib_insync 版
+    通过 IB Gateway socket API 直连，比 Client Portal HTTP 更稳定。
     ⚠️ 安全说明：此类不包含任何下单、修改、取消订单的方法。
     """
-    
-    def __init__(self, base_url: str = BASE_URL, account_id: str = ACCOUNT_ID):
-        self.base_url = base_url
-        self.account_id = account_id
-        self.session = requests.Session()
-        self.session.verify = False
-    
-    def _get(self, endpoint: str, params: dict = None) -> dict:
-        r = self.session.get(f"{self.base_url}{endpoint}", params=params, timeout=15)
-        return r.json() if r.text else {}
-        
-    def _post(self, endpoint: str, json_data: dict = None) -> dict:
-        r = self.session.post(f"{self.base_url}{endpoint}", json=json_data, timeout=15)
-        return r.json() if r.text else {}
-    
-    def is_authenticated(self) -> bool:
-        """检查会话是否已认证"""
+
+    def __init__(self, host: str = IB_HOST, port: int = IB_PORT, client_id: int = IB_CLIENT_ID):
+        self.host = host
+        self.port = port
+        self.client_id = client_id
+        self.ib = IB()
+        self._setup_reconnect()
+
+    def _setup_reconnect(self):
+        """设置断线自动重连"""
+        def on_disconnect():
+            print(f"[{datetime.now():%H:%M:%S}] ⚠️ IB Gateway 断线，5秒后重连...")
+            time.sleep(5)
+            try:
+                self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=True)
+                print(f"[{datetime.now():%H:%M:%S}] ✅ 重连成功")
+            except Exception as e:
+                print(f"[{datetime.now():%H:%M:%S}] ❌ 重连失败: {e}")
+
+        self.ib.disconnectedEvent += on_disconnect
+
+    def connect(self) -> bool:
+        """连接 IB Gateway"""
         try:
-            status = self._get("/v1/api/iserver/auth/status")
-            return status.get("authenticated", False)
-        except:
+            self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=True)
+            # 使用延迟行情（免费），避免 "not subscribed" 错误
+            self.ib.reqMarketDataType(3)
+            return True
+        except Exception as e:
+            print(f"❌ 连接失败: {e}")
             return False
-    
-    def keepalive(self) -> bool:
-        """保持会话活跃"""
-        try:
-            self.session.post(f"{self.base_url}/v1/api/tickle", verify=False, timeout=10)
-            return self.is_authenticated()
-        except:
-            return False
-    
-    def get_accounts(self) -> List[dict]:
+
+    def disconnect(self):
+        """断开连接"""
+        if self.ib.isConnected():
+            # 移除重连 handler 避免断开后自动重连
+            self.ib.disconnectedEvent.clear()
+            self.ib.disconnect()
+
+    def is_connected(self) -> bool:
+        """检查连接状态"""
+        return self.ib.isConnected()
+
+    def get_accounts(self) -> List[str]:
         """获取账户列表"""
-        return self._get("/v1/api/portfolio/accounts")
-    
+        return self.ib.managedAccounts()
+
     def get_balance(self) -> dict:
         """获取账户余额/总结"""
-        return self._get(f"/v1/api/portfolio/{self.account_id}/summary")
-    
+        summary = self.ib.accountSummary()
+        result = {}
+        for item in summary:
+            try:
+                result[item.tag] = {"amount": float(item.value), "currency": item.currency}
+            except (ValueError, TypeError):
+                result[item.tag] = {"amount": item.value, "currency": item.currency}
+        return result
+
     def get_positions(self) -> List[Position]:
-        """获取当前持仓"""
-        data = self._get(f"/v1/api/portfolio/{self.account_id}/positions/0")
+        """获取当前持仓（使用 portfolio() 获取服务端计算的市值和盈亏，无需行情订阅）"""
+        portfolio_items = self.ib.portfolio()
         positions = []
-        for p in data if isinstance(data, list) else []:
-            avg_cost = p.get("avgCost", 0)
-            mkt_value = p.get("mktValue", 0)
-            quantity = p.get("position", 0)
-            unrealized_pnl = p.get("unrealizedPnl", 0)
-            
-            # 计算盈亏百分比
+        for p in portfolio_items:
+            contract = p.contract
+            quantity = p.position
+            avg_cost = p.averageCost
+            mkt_value = p.marketValue
+            unrealized_pnl = p.unrealizedPNL
+
             cost_basis = avg_cost * quantity if quantity else 0
-            pnl_pct = (unrealized_pnl / cost_basis * 100) if cost_basis else 0
-            
+            pnl_pct = (unrealized_pnl / abs(cost_basis) * 100) if cost_basis else 0
+
             positions.append(Position(
-                symbol=p.get("contractDesc", ""),
-                conid=p.get("conid", 0),
+                symbol=contract.localSymbol or contract.symbol,
+                conid=contract.conId,
                 quantity=quantity,
                 avg_cost=avg_cost,
                 market_value=mkt_value,
@@ -125,118 +151,209 @@ class IBKRReadOnlyClient:
                 pnl_percent=pnl_pct
             ))
         return positions
-    
-    def search_symbol(self, symbol: str) -> Optional[int]:
-        """搜索股票代码，返回 conid"""
-        data = self._get("/v1/api/iserver/secdef/search", {"symbol": symbol})
-        if data and len(data) > 0:
-            return data[0].get("conid")
+
+    def search_symbol(self, symbol: str) -> Optional[Contract]:
+        """搜索股票代码，返回 qualified Contract"""
+        contract = Stock(symbol, 'SMART', 'USD')
+        try:
+            qualified = self.ib.qualifyContracts(contract)
+            if qualified:
+                return qualified[0]
+        except Exception:
+            pass
         return None
-    
-    def get_quote(self, conid: int) -> Optional[Quote]:
+
+    def get_quote(self, symbol: str) -> Optional[Quote]:
         """获取实时行情快照"""
-        fields = "31,84,86,87,88,82,83"  # last, bid, ask, volume, close, change, change%
-        
-        # 首次请求初始化
-        self._get("/v1/api/iserver/marketdata/snapshot", {
-            "conids": str(conid),
-            "fields": fields
-        })
-        time.sleep(0.5)
-        # 重试获取数据
-        for _ in range(3):
-            data = self._get("/v1/api/iserver/marketdata/snapshot", {
-                "conids": str(conid),
-                "fields": fields
-            })
-            if data and len(data) > 0:
-                d = data[0]
-                if d.get("31"):  # 有最新价
-                    return Quote(
-                        conid=conid,
-                        symbol=d.get("symbol", ""),
-                        last_price=float(d.get("31", 0)),
-                        bid=float(d.get("84", 0)),
-                        ask=float(d.get("86", 0)),
-                        volume=int(d.get("87", 0)),
-                        change=float(d.get("82", 0)),
-                        change_pct=float(d.get("83", 0).replace('%', '')) if str(d.get("83", "0")).replace('%', '') else 0.0
-                    )
-            time.sleep(1)
-        return None
-        
-    def get_fundamentals(self, conid: int, symbol: str = "") -> Optional[FundamentalData]:
-        """获取个股基本面指标和公司业务分类"""
-        # 获取公司基础信息 (行业类别, 名字)
-        info = self._get(f"/v1/api/iserver/contract/{conid}/info")
-        company_name = info.get("company_name", "")
-        industry = info.get("industry", "")
-        category = info.get("category", "")
-        
-        # 获取核心财务与市场表现指标
-        # 7289: Market Cap, 7290: P/E, 7291: EPS, 7287: Div Yield, 7293: 52w High, 7294: 52w Low, 7282: Avg Volume
-        fields = "7289,7290,7291,7287,7293,7294,7282"
-        self._get("/v1/api/iserver/marketdata/snapshot", {"conids": str(conid), "fields": fields})
-        time.sleep(1)
-        
-        for _ in range(3):
-            data = self._get("/v1/api/iserver/marketdata/snapshot", {"conids": str(conid), "fields": fields})
-            if data and len(data) > 0:
-                d = data[0]
-                return FundamentalData(
-                    conid=conid,
-                    symbol=symbol,
-                    company_name=company_name,
-                    industry=industry,
-                    category=category,
-                    market_cap=str(d.get("7289", "N/A")),
-                    pe_ratio=str(d.get("7290", "N/A")),
-                    eps=str(d.get("7291", "N/A")),
-                    dividend_yield=str(d.get("7287", "N/A")),
-                    high_52w=str(d.get("7293", "N/A")),
-                    low_52w=str(d.get("7294", "N/A")),
-                    avg_volume=str(d.get("7282", "N/A"))
-                )
-            time.sleep(1)
-        return None
-        
-    def get_historical_data(self, conid: int, period: str = "3m", bar: str = "1d") -> dict:
+        contract = self.search_symbol(symbol)
+        if not contract:
+            return None
+
+        def safe(val, default=0):
+            """处理 NaN 和 None"""
+            import math
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                return default
+            return val
+
+        try:
+            [ticker] = self.ib.reqTickers(contract)
+            last = safe(ticker.last) or safe(ticker.close)
+            bid = safe(ticker.bid)
+            ask = safe(ticker.ask)
+            volume = safe(ticker.volume)
+            close = safe(ticker.close)
+            change = (last - close) if last and close else 0
+            change_pct = (change / close * 100) if close else 0
+
+            return Quote(
+                conid=contract.conId,
+                symbol=symbol,
+                last_price=last or 0,
+                bid=bid,
+                ask=ask,
+                volume=int(volume),
+                change=round(change, 2),
+                change_pct=round(change_pct, 2)
+            )
+        except Exception as e:
+            print(f"❌ 获取行情失败: {e}")
+            return None
+
+    def get_fundamentals(self, symbol: str) -> Optional[FundamentalData]:
+        """获取个股基本面指标"""
+        contract = self.search_symbol(symbol)
+        if not contract:
+            return None
+
+        company_name = contract.description if hasattr(contract, 'description') else ""
+        industry = ""
+        category = ""
+        market_cap = "N/A"
+        pe_ratio = "N/A"
+        eps = "N/A"
+        dividend_yield = "N/A"
+        high_52w = "N/A"
+        low_52w = "N/A"
+        avg_volume = "N/A"
+
+        # 尝试获取 fundamental data XML
+        try:
+            xml_data = self.ib.reqFundamentalData(contract, 'ReportSnapshot')
+            if xml_data:
+                root = ET.fromstring(xml_data)
+                # 解析公司信息
+                co_info = root.find('.//CoIDs')
+                if co_info is not None:
+                    name_el = root.find('.//CoGeneralInfo/CoName')
+                    if name_el is not None:
+                        company_name = name_el.text
+
+                # 解析行业
+                ind_el = root.find('.//Industry')
+                if ind_el is not None:
+                    industry = ind_el.get('type', '')
+                    category = ind_el.text or ''
+
+                # 解析财务指标
+                for ratio in root.findall('.//Ratio'):
+                    field_name = ratio.get('FieldName', '')
+                    value = ratio.text or 'N/A'
+                    if field_name == 'MKTCAP':
+                        market_cap = value
+                    elif field_name == 'PEEXCLXOR':
+                        pe_ratio = value
+                    elif field_name == 'TTMEPSXCLX':
+                        eps = value
+                    elif field_name == 'YIELD':
+                        dividend_yield = value
+                    elif field_name == 'NHIG':
+                        high_52w = value
+                    elif field_name == 'NLOW':
+                        low_52w = value
+                    elif field_name == 'APTS10DAVG' or field_name == 'VOL10DAVG':
+                        avg_volume = value
+        except Exception:
+            # fundamentalData 可能不可用（需要额外订阅）
+            pass
+
+        # 如果 fundamental data 不可用，用 ticker 数据补充
+        try:
+            [ticker] = self.ib.reqTickers(contract)
+            if high_52w == "N/A" and hasattr(ticker, 'high') and ticker.high:
+                high_52w = str(ticker.high)
+            if low_52w == "N/A" and hasattr(ticker, 'low') and ticker.low:
+                low_52w = str(ticker.low)
+        except Exception:
+            pass
+
+        return FundamentalData(
+            conid=contract.conId,
+            symbol=symbol,
+            company_name=company_name,
+            industry=industry,
+            category=category,
+            market_cap=market_cap,
+            pe_ratio=pe_ratio,
+            eps=eps,
+            dividend_yield=dividend_yield,
+            high_52w=high_52w,
+            low_52w=low_52w,
+            avg_volume=avg_volume
+        )
+
+    def get_historical_data(self, symbol: str, duration: str = "3 M", bar_size: str = "1 day") -> List[dict]:
         """
-        获取历史 K 线数据，供趋势分析
-        period 可选: 1d, 1w, 1m, 3m, 6m, 1y, 5y
-        bar 可选: 1min, 5min, 1h, 1d, 1w, 1m
+        获取历史 K 线数据
+        duration: "1 D", "1 W", "1 M", "3 M", "6 M", "1 Y", "5 Y"
+        bar_size: "1 min", "5 mins", "1 hour", "1 day", "1 week", "1 month"
         """
-        return self._get("/v1/api/iserver/marketdata/history", {
-            "conid": str(conid),
-            "period": period,
-            "bar": bar
-        })
-        
-    def run_scanner(self, instrument: str = "STK", scan_type: str = "TOP_PERC_GAIN", location: str = "STK.US.MAJOR", size: int = 10) -> List[dict]:
+        contract = self.search_symbol(symbol)
+        if not contract:
+            return []
+
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract,
+                endDateTime='',
+                durationStr=duration,
+                barSizeSetting=bar_size,
+                whatToShow='TRADES',
+                useRTH=True
+            )
+            return [
+                {
+                    "date": str(bar.date),
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume
+                }
+                for bar in bars
+            ]
+        except Exception as e:
+            print(f"❌ 获取历史数据失败: {e}")
+            return []
+
+    def run_scanner(self, scan_type: str = "TOP_PERC_GAIN", size: int = 10) -> List[dict]:
         """
         全市场智能扫描
-        scan_type 可选: 
-        - TOP_PERC_GAIN (涨幅榜)
-        - TOP_PERC_LOSE (跌幅榜)
-        - MOST_ACTIVE (最活跃)
-        - HIGH_VS_13W_HL (成交量异动)
+        scan_type: TOP_PERC_GAIN, TOP_PERC_LOSE, MOST_ACTIVE, HIGH_VS_13W_HL
         """
-        paylod = {
-            "instrument": instrument,
-            "type": scan_type,
-            "filter": [
-                {"code": "marketCapAbove", "value": 100000000} # 过滤掉微盘股
-            ],
-            "location": location,
-            "size": str(size)
-        }
-        return self._post("/v1/api/iserver/scanner/run", json_data=paylod)
+        try:
+            sub = ScannerSubscription(
+                instrument='STK',
+                locationCode='STK.US.MAJOR',
+                scanCode=scan_type,
+                numberOfRows=size
+            )
+            # 过滤微盘股
+            tag_values = [
+                TagValue('marketCapAbove', '100000000')
+            ]
+            results = self.ib.reqScannerData(sub, scannerSubscriptionFilterOptions=tag_values)
+            return [
+                {
+                    "rank": r.rank,
+                    "symbol": r.contractDetails.contract.symbol,
+                    "conid": r.contractDetails.contract.conId,
+                    "distance": r.distance,
+                    "benchmark": r.benchmark,
+                    "projection": r.projection
+                }
+                for r in results
+            ]
+        except Exception as e:
+            print(f"❌ 扫描失败: {e}")
+            return []
 
     def get_company_news(self, symbol: str, limit: int = 5) -> List[dict]:
         """
-        获取公司的最新新闻 (通过 Yahoo Finance 免费 RSS，因为 IBKR News API 通常需要额外付费订阅)
-        获取最新的标题和发布时间，供 AI 进行事件驱动的情绪分析。
+        获取公司最新新闻 (Yahoo Finance RSS)
+        IBKR News API 需要额外订阅，暂用免费源。
         """
+        import requests
         try:
             url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US"
             headers = {"User-Agent": "Mozilla/5.0"}
@@ -256,7 +373,6 @@ class IBKRReadOnlyClient:
 
 
 def format_currency(value: float) -> str:
-    """格式化货币显示"""
     if value >= 0:
         return f"${value:,.2f}"
     else:
@@ -264,7 +380,6 @@ def format_currency(value: float) -> str:
 
 
 def format_pnl(value: float, pct: float) -> str:
-    """格式化盈亏显示"""
     sign = "📈" if value >= 0 else "📉"
     color_value = f"+{format_currency(value)}" if value >= 0 else format_currency(value)
     return f"{sign} {color_value} ({pct:+.2f}%)"
@@ -272,55 +387,67 @@ def format_pnl(value: float, pct: float) -> str:
 
 def main():
     """主函数 - 展示账户信息"""
-    print("🏦 IBKR 投研辅助与只读查询工具")
+    print("🏦 IBKR 投研辅助与只读查询工具 (ib_insync)")
     print("=" * 50)
     print("⚠️  安全模式：仅查询，无法执行任何交易操作")
     print("=" * 50)
     print()
-    
+
     client = IBKRReadOnlyClient()
-    
-    if not client.is_authenticated():
-        print("❌ 未认证。请先在浏览器登录 https://localhost:5001。")
+
+    if not client.connect():
+        print("❌ 无法连接 IB Gateway。请确保：")
+        print("   1. IB Gateway 已启动并登录")
+        print("   2. API Settings 中已启用 Socket Clients")
+        print(f"   3. 端口 {IB_PORT} 正确 (live=4001, paper=4002)")
         return
-    
-    print("✅ 已连接 IBKR Gateway")
-    
-    # 账户余额与持仓
+
+    print(f"✅ 已连接 IB Gateway ({client.host}:{client.port})")
+
+    # 账户信息
     accounts = client.get_accounts()
     if accounts:
-        client.account_id = accounts[0]["accountId"]
-        print(f"📊 账户: {client.account_id}")
-    
+        print(f"📊 账户: {', '.join(accounts)}")
+
     balance = client.get_balance()
-    cash = balance.get("totalcashvalue", {}).get("amount", 0)
-    net_liq = balance.get("netliquidation", {}).get("amount", 0)
+    cash = balance.get("TotalCashValue", {}).get("amount", 0)
+    net_liq = balance.get("NetLiquidation", {}).get("amount", 0)
     print(f"💵 现金余额: {format_currency(cash)}")
     print(f"💰 净资产: {format_currency(net_liq)}")
     print("-" * 50)
-    
-    # 测试一下基本面获取功能
-    print("🔍 测试获取 AAPL 基本面数据...")
-    aapl_conid = client.search_symbol("AAPL")
-    if aapl_conid:
-        fund = client.get_fundamentals(aapl_conid, "AAPL")
-        if fund:
-            print(f"🍎 公司: {fund.company_name} | 所属行业: {fund.category} ({fund.industry})")
-            print(f"💰 市值: {fund.market_cap} | 市盈率 (P/E): {fund.pe_ratio} | 每股收益 (EPS): {fund.eps}")
-            print(f"📈 52周最高: {fund.high_52w} | 52周最低: {fund.low_52w}")
-            print(f"💧 股息收益率: {fund.dividend_yield} | 日均成交量: {fund.avg_volume}")
-        else:
-            print("❌ 获取基本面信息失败")
-            
+
+    # 持仓
+    print("📈 当前持仓:")
+    positions = client.get_positions()
+    if not positions:
+        print("   (无持仓)")
+    else:
+        for p in positions:
+            pnl = format_pnl(p.unrealized_pnl, p.pnl_percent)
+            print(f"   {p.symbol}: {p.quantity}股 @ {format_currency(p.avg_cost)} → 市值{format_currency(p.market_value)} {pnl}")
     print("-" * 50)
-    print("📰 测试获取 LMND 最新公司新闻事件...")
+
+    # 行情测试
+    print("🔍 测试获取 AAPL 行情...")
+    quote = client.get_quote("AAPL")
+    if quote:
+        print(f"🍎 AAPL: ${quote.last_price:.2f} ({quote.change_pct:+.2f}%) | Bid: ${quote.bid:.2f} Ask: ${quote.ask:.2f}")
+    else:
+        print("❌ 获取行情失败")
+
+    print("-" * 50)
+    print("📰 测试获取 LMND 最新新闻...")
     news = client.get_company_news("LMND")
     if news:
         for idx, item in enumerate(news):
             print(f"  {idx+1}. [{item['date']}] {item['title']}")
     else:
         print("无最新新闻或获取失败。")
-            
+
+    client.disconnect()
+    print("\n✅ 查询完成")
+
 
 if __name__ == "__main__":
+    util.patchAsyncio()
     main()

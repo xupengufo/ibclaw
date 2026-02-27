@@ -1,181 +1,128 @@
 #!/usr/bin/env python3
 """
-IBKR Session Keepalive + Auto-Relogin Script
-每 5 分钟由 cron 执行，自动保活会话，掉线后自动重新登录。
-
-功能：
-1. 发送 tickle 保持会话活跃
-2. 如果会话过期，通过 Selenium 自动重新登录（无需手机 2FA）
-3. 如果 Gateway 进程都没跑，打日志等 launchd 自愈
+IB Gateway 健康检查脚本
+每 5 分钟由 cron 执行，检查 IB Gateway 连接状态。
+断线时发送 Telegram 通知。
 
 Crontab entry:
-*/5 * * * * cd ~/trading && venv/bin/python /path/to/keepalive.py >> ~/trading/keepalive.log 2>&1
+*/5 * * * * cd ~/trading && venv/bin/python keepalive.py >> ~/trading/keepalive.log 2>&1
 """
 
-import requests
-import urllib3
 import os
 import sys
-import time
+import socket
+import subprocess
 from datetime import datetime
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# IB Gateway 配置
+IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
+IB_PORT = int(os.getenv("IB_PORT", "4001"))
 
-BASE_URL = os.getenv("IBEAM_GATEWAY_BASE_URL", "https://localhost:5001")
-TRADING_DIR = os.getenv("TRADING_DIR", os.path.expanduser("~/trading"))
+# Telegram 通知配置（可选）
+TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
+TG_CHAT_ID = os.getenv("TG_CHAT_ID", "")
+
+# 状态文件，避免重复通知
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gw_state")
+
 
 def log(msg):
     timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
     print(f"{timestamp} {msg}")
 
-def check_auth_status():
-    """Check if session is authenticated."""
+
+def check_gateway_process() -> bool:
+    """检查 IB Gateway 进程是否存在"""
     try:
-        r = requests.get(
-            f"{BASE_URL}/v1/api/iserver/auth/status",
-            verify=False,
-            timeout=10
+        result = subprocess.run(
+            ["pgrep", "-f", "ibgateway"],
+            capture_output=True, text=True, timeout=5
         )
-        data = r.json()
-        return data.get("authenticated", False), data
-    except requests.exceptions.ConnectionError:
-        return False, {"error": "Gateway not running (Connection refused)"}
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def check_socket_connection() -> bool:
+    """检查 IB Gateway socket 端口是否可连"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex((IB_HOST, IB_PORT))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def send_telegram(message: str):
+    """发送 Telegram 通知"""
+    if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        return
+    try:
+        import requests
+        url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+        requests.post(url, json={
+            "chat_id": TG_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }, timeout=10)
     except Exception as e:
-        return False, {"error": str(e)}
+        log(f"⚠️ Telegram 通知发送失败: {e}")
 
-def tickle():
-    """Send keepalive ping."""
-    try:
-        r = requests.post(
-            f"{BASE_URL}/v1/api/tickle",
-            verify=False,
-            timeout=10
-        )
-        return r.status_code == 200
-    except:
-        return False
 
-def load_env():
-    """从 .env 加载凭证"""
-    env_file = os.path.join(TRADING_DIR, ".env")
-    env = {}
+def read_state() -> str:
+    """读取上次状态"""
     try:
-        with open(env_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, value = line.split("=", 1)
-                    env[key] = value.strip("'").strip('"')
-    except:
-        pass
-    return env
+        with open(STATE_FILE, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "unknown"
 
-def auto_relogin():
-    """
-    通过 Selenium 自动化 Chrome 完成 Client Portal 登录。
-    适用于不需要 2FA 的专用 bot 账户。
-    """
-    try:
-        from selenium import webdriver
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.common.keys import Keys
-    except ImportError:
-        log("❌ Selenium 未安装，无法自动重登")
-        return False
-    
-    env = load_env()
-    username = env.get("IBEAM_ACCOUNT", "")
-    password = env.get("IBEAM_PASSWORD", "")
-    
-    if not username or not password:
-        log("❌ .env 中缺少 IBEAM_ACCOUNT 或 IBEAM_PASSWORD")
-        return False
-    
-    log(f"🌐 启动 Selenium 自动登录 (用户: {username})...")
-    
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1280,720")
-    chrome_options.add_argument("--ignore-certificate-errors")
-    chrome_options.add_argument("--allow-insecure-localhost")
-    
-    driver = None
-    try:
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.set_page_load_timeout(30)
-        
-        login_url = f"{BASE_URL}/sso/Login?forwardTo=22&RL=1&ip2loc=US"
-        driver.get(login_url)
-        time.sleep(3)
-        
-        wait = WebDriverWait(driver, 20)
-        
-        # 填入用户名
-        user_field = wait.until(EC.presence_of_element_located((By.NAME, "username")))
-        user_field.clear()
-        user_field.send_keys(username)
-        
-        # 填入密码
-        pass_field = driver.find_element(By.NAME, "password")
-        pass_field.clear()
-        pass_field.send_keys(password)
-        
-        # 提交
-        try:
-            btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-            btn.click()
-        except:
-            pass_field.send_keys(Keys.RETURN)
-        
-        log("🚀 登录表单已提交，等待认证...")
-        
-        # 等待认证完成
-        for i in range(30):
-            time.sleep(2)
-            auth_ok, _ = check_auth_status()
-            if auth_ok:
-                log("✅ 自动重登成功！")
-                return True
-        
-        log("❌ 60秒内未完成认证")
-        return False
-        
-    except Exception as e:
-        log(f"❌ Selenium 错误: {e}")
-        return False
-    finally:
-        if driver:
-            driver.quit()
+
+def write_state(state: str):
+    """写入当前状态"""
+    with open(STATE_FILE, "w") as f:
+        f.write(state)
+
 
 def main():
-    auth_ok, status = check_auth_status()
-    
-    if "error" in status:
-        log(f"❌ Gateway not responding: {status['error']}")
-        log("   等待 launchd 自动重启 Gateway...")
-        return
-    
-    if auth_ok:
-        # Session active → tickle 续命
-        if tickle():
-            log("✅ Session active - keepalive sent")
+    process_ok = check_gateway_process()
+    socket_ok = check_socket_connection()
+    last_state = read_state()
+
+    if process_ok and socket_ok:
+        # 一切正常
+        if last_state != "ok":
+            log("✅ IB Gateway 恢复正常")
+            send_telegram("✅ IB Gateway 已恢复连接！Agent 后台数据通道恢复。")
         else:
-            log("⚠️ Tickle failed but session reports authenticated")
+            log("✅ IB Gateway running - port reachable")
+        write_state("ok")
+
+    elif process_ok and not socket_ok:
+        # 进程在但端口不通（可能正在启动或登录中）
+        log("⚠️ IB Gateway 进程在运行，但端口不通（可能需要登录）")
+        if last_state != "port_down":
+            send_telegram(
+                "⚠️ <b>IB Gateway 端口不通</b>\n"
+                f"进程在运行，但 {IB_HOST}:{IB_PORT} 无法连接。\n"
+                "可能原因：未登录 / 正在启动中\n"
+                "请检查 IB Gateway 登录状态。"
+            )
+        write_state("port_down")
+
     else:
-        # Session expired → 自动重登
-        log("⚠️ Session not authenticated - attempting auto-relogin...")
-        if auto_relogin():
-            log("🎉 Auto-relogin successful, session restored")
-        else:
-            log("❌ Auto-relogin failed. Manual login may be needed.")
-            log("   Run: cd ~/trading && venv/bin/python manual_auth.py")
+        # 进程都没跑
+        log("❌ IB Gateway 进程未运行")
+        if last_state != "down":
+            send_telegram(
+                "❌ <b>IB Gateway 已停止</b>\n"
+                "进程未运行，所有实盘数据查询不可用。\n"
+                "请在 Mac mini 上重新启动 IB Gateway 并登录。"
+            )
+        write_state("down")
+
 
 if __name__ == "__main__":
     main()
