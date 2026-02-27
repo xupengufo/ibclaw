@@ -83,7 +83,7 @@ class IBKRReadOnlyClient:
             print(f"[{datetime.now():%H:%M:%S}] ⚠️ IB Gateway 断线，5秒后重连...")
             time.sleep(5)
             try:
-                self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=True)
+                self.ib.connect(self.host, self.port, clientId=self.client_id)
                 print(f"[{datetime.now():%H:%M:%S}] ✅ 重连成功")
             except Exception as e:
                 print(f"[{datetime.now():%H:%M:%S}] ❌ 重连失败: {e}")
@@ -93,7 +93,7 @@ class IBKRReadOnlyClient:
     def connect(self) -> bool:
         """连接 IB Gateway"""
         try:
-            self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=True)
+            self.ib.connect(self.host, self.port, clientId=self.client_id)
             # 使用延迟行情（免费），避免 "not subscribed" 错误
             self.ib.reqMarketDataType(3)
             return True

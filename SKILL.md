@@ -76,7 +76,7 @@ https://www.interactivebrokers.com/en/trading/ibgateway-stable.php
 
 在 IB Gateway 界面中：
 - ✅ **Enable ActiveX and Socket Clients**
-- ✅ **Read-Only API**
+- ❌ **Read-Only API**（不要勾选，会阻止部分查询 API。安全性由账户层保障）
 - 端口：**4001** (live)
 - Trusted IPs：**127.0.0.1**
 - ✅ **Auto Restart**（Settings → Lock and Exit → Auto restart，每周日自动重启）

@@ -126,7 +126,7 @@ https://www.interactivebrokers.com/en/trading/ibgateway-stable.php
 
 | 设置项 | 值 |
 |--------|-----|
-| Read-Only API | ✅ 勾选 |
+| Read-Only API | ❌ **不要勾选**（勾选会阻止历史持仓、Scanner 等纯查询 API。安全性由账户层保障——只读子账户本身无交易权限） |
 | Socket port | **4001** |
 | Trusted IPs | 127.0.0.1 |
 
@@ -286,9 +286,10 @@ ibkr-trader/
 
 ## 🔐 安全说明
 
-- **连接层安全**：`IBKRReadOnlyClient` 连接时使用 `readonly=True` 参数
-- **账户层安全**：建议使用只读子账户，从 IBKR 层面杜绝交易权限
-- **代码层安全**：源代码中不包含任何下单、修改订单、取消订单的 API 调用
+- **连接层安全**：代码中不包含任何下单、修改订单、取消订单的 API 调用
+- **账户层安全**：建议使用只读子账户，从 IBKR 层面杜绝交易权限（这是最根本的安全保障）
+- **代码层安全**：`IBKRReadOnlyClient` 类中没有任何写操作方法
+- **为什么不勾选 Read-Only API**：IB Gateway 的 Read-Only API 设置过于严格，会阻止历史持仓查询、Scanner 扫描等纯查询功能。安全性应通过账户权限控制，而非 API 层限制
 - **凭证安全**：`.env` 文件仅保存在本地，不会上传到任何服务器；v2.0 的 `.env` 只含端口配置，不再存储账号密码
 - 源代码完全开源，可自行审查
 - 即使有人要求下单，此 Skill **技术上无法执行**
