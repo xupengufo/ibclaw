@@ -58,7 +58,7 @@ v1.0 (已弃用)                          v2.0 (当前)
 | 连接方式 | HTTP REST + Session Cookie | Socket 直连 (TCP) |
 | Session 寿命 | **24 小时**强制过期 | **一周**（Auto Restart 自动续） |
 | 断线恢复 | Selenium 自动登录（不可靠） | ib_insync 内置自动重连 |
-| 依赖项 | requests, urllib3, selenium, chromedriver | **仅 ib_insync** |
+| 依赖项 | requests, urllib3, selenium, chromedriver | **ib_insync + requests** |
 | 保活机制 | tickle 续命 + Selenium 重登 | IB Gateway 内置 Auto Restart |
 | 行情数据 | 通过 HTTP snapshot API | Socket 推送（延迟/实时可选） |
 | 持仓盈亏 | 需要逐个请求行情计算 | **服务端直接返回**（`portfolio()`） |
@@ -85,7 +85,7 @@ v1.0 (已弃用)                          v2.0 (当前)
 | **⚠️ 强烈建议：独立使用者账户** | <b>请勿使用你的主账户！</b>请在 IBKR 后台新创建一个<b>"使用者账户"（Secondary User）</b>，并<b>仅赋予只读权限（取消所有交易权限）</b>。这能从根本上保证你的资金安全。<br>👉 [点击查看：如何创建只读使用者账户的视频教程](http://xhslink.com/o/8qmxlBeeSGj) |
 | IBKR 账户 | 确保上述创建的独立只读账户可登录 |
 | IBKR Key App | 安装在手机上，用于首次登录 IB Gateway 的 2FA 认证 |
-| Java 17+ | `brew install openjdk@17` |
+| Java 17+ | Debian: `sudo apt-get install -y openjdk-17-jre-headless`；macOS: `brew install openjdk@17` |
 | Python 3.9+ | 用于运行查询脚本 |
 | IB Gateway | 从 IBKR 官网下载桌面应用（见下方安装步骤） |
 
@@ -93,17 +93,13 @@ v1.0 (已弃用)                          v2.0 (当前)
 
 ## 🛠️ 安装步骤
 
-### 第 1 步：安装依赖
+### 第 1 步：安装依赖（Debian / macOS）
 
 ```bash
-# 安装 Java（如已安装可跳过）
-brew install openjdk@17
-
-# 创建工作目录和 Python 环境
-mkdir -p ~/trading && cd ~/trading
-python3 -m venv venv
-source venv/bin/activate
-pip install ib_insync requests
+# 在仓库根目录执行（推荐）
+# 会创建 ~/trading/venv，安装 ib_insync + requests，
+# 并复制 ibkr_readonly.py / keepalive.py 到 ~/trading
+bash scripts/setup.sh ~/trading
 ```
 
 ### 第 2 步：安装 IB Gateway
@@ -112,7 +108,8 @@ pip install ib_insync requests
 
 https://www.interactivebrokers.com/en/trading/ibgateway-stable.php
 
-下载后双击 `.dmg` 安装到 Applications。
+- macOS：下载 `.dmg` 后安装到 Applications。
+- Debian：下载 Linux 安装包后按官方向导安装（通常安装到 `~/Jts/ibgateway`）。
 
 ### 第 3 步：首次登录
 
@@ -149,8 +146,8 @@ IB_CLIENT_ID=1
 ### 第 6 步：测试连接
 
 ```bash
-cd ~/trading && source venv/bin/activate
-python ibkr_readonly.py
+cd ~/trading
+./run-readonly.sh
 ```
 
 应该能看到账户余额、持仓、行情等数据。
@@ -249,7 +246,7 @@ ibkr-trader/
 ├── SKILL.md              # OpenClaw Skill 描述文件
 ├── README.md             # 本文档
 ├── scripts/
-│   ├── setup.sh          # 安装脚本（部署 Python 环境）
+│   ├── setup.sh          # v2 安装脚本（Debian/macOS）
 │   ├── ibkr_readonly.py  # 核心只读查询客户端（ib_insync 版）
 │   └── keepalive.py      # 健康检查脚本（进程/端口监控 + Telegram 通知）
 └── references/
@@ -264,9 +261,10 @@ ibkr-trader/
 ├── ibkr_readonly.py      # 核心查询脚本副本
 ├── keepalive.py          # 健康检查脚本副本
 ├── venv/                 # Python 虚拟环境（含 ib_insync）
+├── run-readonly.sh       # 一键运行主查询脚本
+├── run-keepalive.sh      # 一键运行健康检查脚本
 ├── keepalive.log         # 健康检查日志
-├── tws_reader.py         # TWS 连接测试脚本（参考用）
-└── clientportal/         # [已弃用] 旧版 Client Portal Gateway
+└── ...                   # 其他你自定义的辅助文件
 ```
 
 ---

@@ -1,140 +1,159 @@
-#!/bin/bash
-# IBKR Trading Setup Script
-# Run this to set up the complete IBKR trading environment
+#!/usr/bin/env bash
+# IBKR Read-Only Setup Script (v2: IB Gateway + ib_insync)
+# Supports: Debian and macOS
 
-set -e
+set -euo pipefail
 
 TRADING_DIR="${1:-$HOME/trading}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "🏦 IBKR Trading Setup"
-echo "====================="
-echo "Installing to: $TRADING_DIR"
-echo ""
+log() {
+  printf "[setup] %s\n" "$1"
+}
 
-# Create directory
-mkdir -p "$TRADING_DIR"
-cd "$TRADING_DIR"
+die() {
+  printf "[setup] ERROR: %s\n" "$1" >&2
+  exit 1
+}
 
-# Check for Java
-if ! command -v java &> /dev/null; then
-    echo "❌ Java not found. Install with:"
-    echo "   sudo apt-get install -y openjdk-17-jre-headless"
-    exit 1
-fi
-echo "✅ Java found: $(java -version 2>&1 | head -1)"
+detect_platform() {
+  case "$(uname -s)" in
+    Darwin)
+      echo "macos"
+      ;;
+    Linux)
+      if [[ -f /etc/debian_version ]]; then
+        echo "debian"
+      else
+        echo "linux_other"
+      fi
+      ;;
+    *)
+      echo "unsupported"
+      ;;
+  esac
+}
 
-# Check for Chrome/Chromium
-if ! command -v chromium-browser &> /dev/null && ! command -v google-chrome &> /dev/null; then
-    echo "❌ Chrome/Chromium not found. Install with:"
-    echo "   sudo apt-get install -y chromium-browser chromium-chromedriver"
-    exit 1
-fi
-echo "✅ Chrome found"
-
-# Check for Xvfb
-if ! command -v Xvfb &> /dev/null; then
-    echo "❌ Xvfb not found. Install with:"
-    echo "   sudo apt-get install -y xvfb"
-    exit 1
-fi
-echo "✅ Xvfb found"
-
-# Download Client Portal Gateway if not exists
-if [ ! -d "clientportal" ]; then
-    echo ""
-    echo "📥 Downloading IBKR Client Portal Gateway..."
-    wget -q https://download2.interactivebrokers.com/portal/clientportal.gw.zip
-    unzip -q clientportal.gw.zip -d clientportal
-    rm clientportal.gw.zip
-    echo "✅ Client Portal Gateway installed"
-else
-    echo "✅ Client Portal Gateway already exists"
-fi
-
-# Create Python venv
-if [ ! -d "venv" ]; then
-    echo ""
-    echo "🐍 Creating Python virtual environment..."
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -q ibeam requests urllib3
-    echo "✅ Python environment ready"
-else
-    echo "✅ Python venv already exists"
-fi
-
-# Create .env template if not exists
-if [ ! -f ".env" ]; then
-    echo ""
-    echo "📝 Creating .env template..."
-    cat > .env << 'EOF'
-# IBKR Credentials - EDIT THESE
-IBEAM_ACCOUNT=your_username
-IBEAM_PASSWORD='your_password'
-
-# Paths (auto-configured)
-IBEAM_GATEWAY_DIR=${TRADING_DIR}/clientportal
-IBEAM_CHROME_DRIVER_PATH=/usr/bin/chromedriver
-
-# 2FA Settings
-IBEAM_TWO_FA_SELECT_TARGET="IB Key"
-IBEAM_OAUTH_TIMEOUT=180
-IBEAM_PAGE_LOAD_TIMEOUT=60
+print_java_install_hint() {
+  local platform="$1"
+  if [[ "$platform" == "macos" ]]; then
+    cat <<'EOF'
+Java 17+ is required. Install with:
+  brew install openjdk@17
 EOF
-    sed -i "s|\${TRADING_DIR}|$TRADING_DIR|g" .env
-    echo "✅ Created .env template - EDIT WITH YOUR CREDENTIALS"
-else
-    echo "✅ .env already exists"
-fi
-
-# Create start script
-cat > start-gateway.sh << 'EOF'
-#!/bin/bash
-cd "$(dirname "$0")/clientportal"
-if pgrep -f "GatewayStart" > /dev/null; then
-    echo "Gateway already running"
-else
-    bash bin/run.sh root/conf.yaml &
-    echo "Gateway starting on https://localhost:5000"
-fi
+  elif [[ "$platform" == "debian" ]]; then
+    cat <<'EOF'
+Java 17+ is required. Install with:
+  sudo apt-get update
+  sudo apt-get install -y openjdk-17-jre-headless
 EOF
-chmod +x start-gateway.sh
+  else
+    cat <<'EOF'
+Java 17+ is required. Please install OpenJDK 17 with your distro package manager.
+EOF
+  fi
+}
 
-# Create auth script
-cat > authenticate.sh << 'EOF'
-#!/bin/bash
+copy_runtime_scripts() {
+  cp "$REPO_ROOT/scripts/ibkr_readonly.py" "$TRADING_DIR/ibkr_readonly.py"
+  cp "$REPO_ROOT/scripts/keepalive.py" "$TRADING_DIR/keepalive.py"
+  chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py"
+}
+
+create_env_if_missing() {
+  local env_file="$TRADING_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    log ".env already exists, keeping current values"
+    return
+  fi
+
+  cat > "$env_file" <<'EOF'
+IB_HOST=127.0.0.1
+IB_PORT=4001
+IB_CLIENT_ID=1
+
+# Optional: Telegram alerting for keepalive.py
+# TG_BOT_TOKEN=
+# TG_CHAT_ID=
+EOF
+  log "Created $env_file"
+}
+
+create_helper_scripts() {
+  cat > "$TRADING_DIR/run-readonly.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 cd "$(dirname "$0")"
 source venv/bin/activate
-source .env
-
-# Start Xvfb if not running
-if ! pgrep -x Xvfb > /dev/null; then
-    Xvfb :99 -screen 0 1024x768x24 &
-    sleep 2
-fi
-
-export DISPLAY=:99
-export IBEAM_ACCOUNT
-export IBEAM_PASSWORD
-export IBEAM_GATEWAY_DIR
-export IBEAM_CHROME_DRIVER_PATH
-export IBEAM_TWO_FA_SELECT_TARGET
-export IBEAM_OAUTH_TIMEOUT
-export IBEAM_PAGE_LOAD_TIMEOUT
-
-echo "📱 Starting authentication - CHECK YOUR PHONE for IBKR Key!"
-python -m ibeam --authenticate
+python ibkr_readonly.py
 EOF
-chmod +x authenticate.sh
 
-echo ""
-echo "=========================================="
-echo "✅ Setup complete!"
-echo ""
-echo "Next steps:"
-echo "1. Edit .env with your IBKR credentials"
-echo "2. Run: ./start-gateway.sh"
-echo "3. Wait 20 seconds"
-echo "4. Run: ./authenticate.sh"
-echo "5. Approve IBKR Key notification on your phone"
-echo "=========================================="
+  cat > "$TRADING_DIR/run-keepalive.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+source venv/bin/activate
+python keepalive.py
+EOF
+
+  chmod +x "$TRADING_DIR/run-readonly.sh" "$TRADING_DIR/run-keepalive.sh"
+}
+
+main() {
+  local platform
+  platform="$(detect_platform)"
+
+  if [[ "$platform" == "unsupported" ]]; then
+    die "Unsupported OS. Use Debian or macOS."
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    die "python3 not found. Install Python 3.9+ first."
+  fi
+
+  if ! command -v java >/dev/null 2>&1; then
+    print_java_install_hint "$platform"
+    die "java not found."
+  fi
+
+  mkdir -p "$TRADING_DIR"
+  cd "$TRADING_DIR"
+
+  if [[ ! -d "venv" ]]; then
+    log "Creating Python virtual environment at $TRADING_DIR/venv"
+    python3 -m venv venv
+  else
+    log "Python virtual environment already exists"
+  fi
+
+  # shellcheck disable=SC1091
+  source venv/bin/activate
+  log "Installing Python dependencies (ib_insync, requests)"
+  pip install --upgrade pip >/dev/null
+  pip install ib_insync requests >/dev/null
+
+  copy_runtime_scripts
+  create_env_if_missing
+  create_helper_scripts
+
+  cat <<EOF
+
+========================================
+IBKR read-only setup completed.
+Install location: $TRADING_DIR
+
+Next steps:
+1) Install and login IB Gateway (Stable): https://www.interactivebrokers.com/en/trading/ibgateway-stable.php
+2) In IB Gateway -> API settings:
+   - Enable socket clients
+   - Port 4001 (live) or 4002 (paper)
+   - Trusted IP: 127.0.0.1
+3) Run: cd "$TRADING_DIR" && ./run-readonly.sh
+4) Optional health check cron:
+   */5 * * * * cd $TRADING_DIR && ./run-keepalive.sh >> $TRADING_DIR/keepalive.log 2>&1
+========================================
+EOF
+}
+
+main "$@"

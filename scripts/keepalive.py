@@ -9,10 +9,30 @@ Crontab entry:
 """
 
 import os
-import sys
 import socket
 import subprocess
 from datetime import datetime
+
+
+def load_local_env():
+    """加载脚本同目录的 .env（仅填充未设置的环境变量）"""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+
+    with open(env_path, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("'").strip('"')
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+load_local_env()
 
 # IB Gateway 配置
 IB_HOST = os.getenv("IB_HOST", "127.0.0.1")

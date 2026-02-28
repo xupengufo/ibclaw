@@ -18,6 +18,27 @@ from typing import Optional, List, Dict
 
 from ib_insync import *
 
+
+def load_local_env():
+    """加载脚本同目录的 .env（仅填充未设置的环境变量）"""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+
+    with open(env_path, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("'").strip('"')
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+load_local_env()
+
 # Configuration
 IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
 IB_PORT = int(os.getenv("IB_PORT", "4001"))
@@ -83,7 +104,8 @@ class IBKRReadOnlyClient:
             print(f"[{datetime.now():%H:%M:%S}] ⚠️ IB Gateway 断线，5秒后重连...")
             time.sleep(5)
             try:
-                self.ib.connect(self.host, self.port, clientId=self.client_id)
+                self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=True)
+                self.ib.reqMarketDataType(3)
                 print(f"[{datetime.now():%H:%M:%S}] ✅ 重连成功")
             except Exception as e:
                 print(f"[{datetime.now():%H:%M:%S}] ❌ 重连失败: {e}")
@@ -93,7 +115,7 @@ class IBKRReadOnlyClient:
     def connect(self) -> bool:
         """连接 IB Gateway"""
         try:
-            self.ib.connect(self.host, self.port, clientId=self.client_id)
+            self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=True)
             # 使用延迟行情（免费），避免 "not subscribed" 错误
             self.ib.reqMarketDataType(3)
             return True

@@ -36,7 +36,7 @@ description: IBKR 投资研究与只读查询（无交易功能）。用于投�
 作为用户的专属量化与投资分析顾问，当你被唤醒执行此技能时，**绝对不能仅仅返回枯燥的数字或不假思索地回答**。你必须执行以下 **"深度投研四步法"**：
 
 1. **提取核心数据 (Data Anchoring)**
-   - 必须通过执行 `/Users/qibaoba/clawd/skills/ibkr-trader/scripts/ibkr_readonly.py` 获取查询标的（如 IBM, LMND 等）的最新基本面指标（P/E，市值，52周高低点）以及最新新闻。
+   - 必须通过执行当前项目下的 `scripts/ibkr_readonly.py`（部署后通常为 `~/trading/ibkr_readonly.py`）获取查询标的（如 IBM, LMND 等）的最新基本面指标（P/E，市值，52周高低点）以及最新新闻。
 2. **强制全网深度检索 (Mandatory Web Search)**
    - 单靠 RSS 新闻是不够的！你必须使用你的 `search_web` 工具，去全网搜索该公司的**最新宏观事件、财报会议记录、产品动态及行业竞品动作**（例如：回答 IBM 时，必须要搜索目前 AI 行业如 Anthropic/OpenAI 对其护城河的影响）。
 3. **推演与逻辑链 (Chain of Thought & Reasoning)**
@@ -48,7 +48,7 @@ description: IBKR 投资研究与只读查询（无交易功能）。用于投�
 
 1. IBKR 账户（真实或模拟盘）
 2. 手机安装 IBKR Key App（首次登录 IB Gateway 需要 2FA）
-3. Mac 需要 Java 17+ 和 Python 3.9+
+3. Debian / macOS 需要 Java 17+ 和 Python 3.9+
 4. **IB Gateway** 桌面应用（从 IBKR 官网下载）
 
 ## 快速配置
@@ -56,13 +56,8 @@ description: IBKR 投资研究与只读查询（无交易功能）。用于投�
 ### 1. 安装依赖
 
 ```bash
-# 安装 Java
-brew install openjdk@17
-
-# Python 虚拟环境（已有则跳过）
-cd ~/trading
-source venv/bin/activate
-pip install ib_insync requests
+# Debian / macOS 一键安装运行环境
+bash scripts/setup.sh ~/trading
 ```
 
 ### 2. 安装 IB Gateway
