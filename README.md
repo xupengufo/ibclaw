@@ -196,7 +196,7 @@ ib.disconnectedEvent += on_disconnect
 
 ```bash
 # Crontab
-*/5 * * * * cd ~/trading && source venv/bin/activate && python keepalive.py >> ~/trading/keepalive.log 2>&1
+*/5 * * * * cd ~/trading && ./run-keepalive.sh >> ~/trading/keepalive.log 2>&1
 ```
 
 | 状态 | 行为 |
@@ -274,7 +274,7 @@ ibkr-trader/
 | 问题 | 排查步骤 |
 |------|----------|
 | 连接失败 | 检查 IB Gateway 是否启动并登录：桌面是否有 IB Gateway 窗口 |
-| clientId 冲突 | `IB_CLIENT_ID=2 python ibkr_readonly.py`（上次连接没释放，换个 ID 即可，几分钟后恢复） |
+| clientId 冲突 | `IB_CLIENT_ID=2 ./run-readonly.sh`（上次连接没释放，换个 ID 即可，几分钟后恢复） |
 | 端口不通 | 检查 API Settings 中端口是否为 4001，Socket Clients 是否已启用 |
 | 期权数据为 0 | 正常—期权延迟行情也需要 OPRA 订阅（$1.5/月）；持仓盈亏通过 `portfolio()` 仍可查看 |
 | 认证过期 | IB Gateway Auto Restart 会自动处理；若失败则手动重启 IB Gateway 并登录 |
