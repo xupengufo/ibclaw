@@ -1,6 +1,7 @@
 ---
 name: ibkr-readonly
 description: IBKR 投资研究与只读查询（无交易功能）。用于投研分析、公司基本面调研、持仓/余额/行情查询。触发词：IBKR、分析公司、盈透、持仓、股价、行情、基本面、财报、投资建议。
+metadata: {"openclaw":{"requires":{"os":["darwin","linux"],"bins":["bash","python3"]}}}
 ---
 
 # IBKR 只读查询技能
@@ -36,13 +37,24 @@ description: IBKR 投资研究与只读查询（无交易功能）。用于投�
 作为用户的专属量化与投资分析顾问，当你被唤醒执行此技能时，**绝对不能仅仅返回枯燥的数字或不假思索地回答**。你必须执行以下 **"深度投研四步法"**：
 
 1. **提取核心数据 (Data Anchoring)**
-   - 必须通过执行当前项目下的 `scripts/ibkr_readonly.py`（部署后通常为 `~/trading/ibkr_readonly.py`）获取查询标的（如 IBM, LMND 等）的最新基本面指标（P/E，市值，52周高低点）以及最新新闻。
+   - 优先通过执行 `~/trading/run-readonly.sh` 获取查询标的（如 IBM, LMND 等）的基本面、持仓和新闻数据；若 `~/trading` 未部署，再执行 `bash {baseDir}/scripts/setup.sh ~/trading` 完成初始化后重试。
 2. **强制全网深度检索 (Mandatory Web Search)**
-   - 单靠 RSS 新闻是不够的！你必须使用你的 `search_web` 工具，去全网搜索该公司的**最新宏观事件、财报会议记录、产品动态及行业竞品动作**（例如：回答 IBM 时，必须要搜索目前 AI 行业如 Anthropic/OpenAI 对其护城河的影响）。
+   - 单靠 RSS 新闻不够。你必须使用当前环境可用的联网搜索能力，补充该公司的**最新宏观事件、财报会议记录、产品动态及行业竞品动作**；若当前环境不可联网，必须在结论中明确写出“外部检索不可用”。
 3. **推演与逻辑链 (Chain of Thought & Reasoning)**
    - 不要只罗列新闻！你要分析这些外部变量（竞品发布、宏观政策）会如何影响公司未来的盈利预期（EPS）和估值（P/E）。分析市场情绪，解释这只股票最近大涨或大跌的**潜在深层逻辑**。
 4. **输出高管级研报 (Executive Summary)**
    - 以专业、条理清晰的格式回复用户。必须包含：`1. 📊 盘面与基本面速览`，`2. 🌪️ 核心事件驱动 (结合 web search 深度信息)`，`3. 🧠 深度竞品与护城河分析`，`4. 💡 总结与投资视角`。
+
+### 失败降级规则（必须遵守）
+
+- 若 IB Gateway 未连接或脚本执行失败：先给出明确故障原因，再输出“可执行下一步”（例如：检查网关登录、端口、clientId）。
+- 若外部搜索不可用：继续输出基于本地与 IB 数据的分析，并单独标注“外部信息覆盖不足”。
+- 禁止虚构数据来源。拿不到的数据直接写“未获取到”，不要编造。
+- 降级输出仍需固定结构：
+  - `1. 已确认的数据`
+  - `2. 未获取到的数据`
+  - `3. 对结论的影响`
+  - `4. 下一步操作`
 
 ## 前置条件
 
@@ -57,7 +69,7 @@ description: IBKR 投资研究与只读查询（无交易功能）。用于投�
 
 ```bash
 # Debian / macOS 一键安装运行环境
-bash scripts/setup.sh ~/trading
+bash {baseDir}/scripts/setup.sh ~/trading
 ```
 
 ### 2. 安装 IB Gateway
@@ -65,7 +77,7 @@ bash scripts/setup.sh ~/trading
 从 IBKR 官网下载 **IB Gateway** (Stable channel)：
 https://www.interactivebrokers.com/en/trading/ibgateway-stable.php
 
-安装后启动，用 liusaibot 登录（需手机 2FA 确认）。
+安装后启动，用你的只读子账户登录（需手机 2FA 确认）。
 
 ### 3. 配置 IB Gateway API Settings
 
@@ -88,8 +100,8 @@ IB_CLIENT_ID=1
 ### 5. 测试连接
 
 ```bash
-cd ~/trading && source venv/bin/activate
-python ibkr_readonly.py
+cd ~/trading
+./run-readonly.sh
 ```
 
 ## 使用方法
@@ -97,8 +109,8 @@ python ibkr_readonly.py
 ### 查看持仓和余额
 
 ```bash
-cd ~/trading && source venv/bin/activate
-python ibkr_readonly.py
+cd ~/trading
+./run-readonly.sh
 ```
 
 ### 在 OpenClaw 中使用
@@ -116,7 +128,7 @@ python ibkr_readonly.py
 
 ```bash
 # Crontab
-*/5 * * * * cd ~/trading && source venv/bin/activate && python keepalive.py >> ~/trading/keepalive.log 2>&1
+*/5 * * * * cd ~/trading && ./run-keepalive.sh >> ~/trading/keepalive.log 2>&1
 ```
 
 IB Gateway 自带 Auto Restart，通常不需要手动干预。只有在以下情况才需要手动操作：
@@ -138,5 +150,5 @@ IB Gateway 自带 Auto Restart，通常不需要手动干预。只有在以下�
 此技能设计为**完全只读**：
 - 源代码中不包含任何下单 API 调用
 - `IBKRReadOnlyClient` 连接时使用 `readonly=True` 参数
-- liusaibot 子账户本身也没有交易权限
+- 只读子账户本身没有交易权限
 - 即使有人要求下单，技能也无法执行
