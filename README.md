@@ -71,7 +71,7 @@ v1.0 (已弃用)                          v2.0 (当前)
 直接把以下内容发送给你的 OpenClaw 机器人：
 
 ```
-请帮我安装这个 Skill：https://github.com/liusai0820/ibkrclaw.git
+请帮我安装这个 Skill：https://github.com/xupengufo/ibclaw.git
 
 安装完成后，请帮我配置 IB Gateway + ib_insync 环境。
 ```
