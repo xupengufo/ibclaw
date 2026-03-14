@@ -226,6 +226,7 @@ ib.disconnectedEvent += on_disconnect
 | 实时行情 | ✅ | 任意股票的价格（延迟 15 分钟，订阅后可实时） |
 | 深度基本面 | ✅ | 公司市值、P/E 市盈率、EPS、股息收益及行业分类 |
 | 历史 K 线走势 | ✅ | 任意时间跨度的 OHLCV 数据 |
+| 技术分析 | ✅ | SMA/EMA/RSI/MACD/布林带/支撑阻力/量能 + 综合评分(-100~+100) |
 | 市场大盘扫描 | ✅ | 8 种预设策略（涨跌幅榜、异动榜、52周新高、高股息、低市盈率等） |
 | 最新财经事件 | ✅ | Yahoo Finance RSS 新闻聚合 + AI 事件驱动分析 |
 | 组合分析 | ✅ | 资产配置分布、持仓集中度(HHI)、组合 Beta、相关性矩阵 |
@@ -261,6 +262,7 @@ ibkr-trader/
 │   ├── trade_review.py       # 交易复盘 (胜率/盈亏比)
 │   ├── alerts.py             # 主动告警 (Telegram 推送)
 │   ├── scanner_enhanced.py   # 增强扫描器 + Watchlist
+│   ├── technical_analysis.py # 技术分析 (SMA/RSI/MACD/布林带)
 │   └── export.py             # 数据导出 (CSV/报告)
 └── references/
     └── ...                   # 参考文档

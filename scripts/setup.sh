@@ -64,6 +64,7 @@ copy_runtime_scripts() {
   cp "$REPO_ROOT/scripts/alerts.py" "$TRADING_DIR/alerts.py"
   cp "$REPO_ROOT/scripts/scanner_enhanced.py" "$TRADING_DIR/scanner_enhanced.py"
   cp "$REPO_ROOT/scripts/export.py" "$TRADING_DIR/export.py"
+  cp "$REPO_ROOT/scripts/technical_analysis.py" "$TRADING_DIR/technical_analysis.py"
   chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py"
 }
 
