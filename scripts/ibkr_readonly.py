@@ -54,6 +54,13 @@ class Position:
     market_value: float
     unrealized_pnl: float
     pnl_percent: float
+    sec_type: str = "STK"      # STK, OPT, FUT, etc.
+    currency: str = "USD"
+    account: str = ""
+    # 期权专用字段
+    strike: float = 0.0
+    right: str = ""            # C or P
+    expiry: str = ""           # YYYYMMDD
 
 
 @dataclass
@@ -75,13 +82,14 @@ class FundamentalData:
     company_name: str
     industry: str
     category: str
-    market_cap: str
-    pe_ratio: str
-    eps: str
-    dividend_yield: str
-    high_52w: str
-    low_52w: str
-    avg_volume: str
+    sector: str = ""
+    market_cap: str = "N/A"
+    pe_ratio: str = "N/A"
+    eps: str = "N/A"
+    dividend_yield: str = "N/A"
+    high_52w: str = "N/A"
+    low_52w: str = "N/A"
+    avg_volume: str = "N/A"
 
 
 class IBKRReadOnlyClient:
@@ -170,9 +178,51 @@ class IBKRReadOnlyClient:
                 avg_cost=avg_cost,
                 market_value=mkt_value,
                 unrealized_pnl=unrealized_pnl,
-                pnl_percent=pnl_pct
+                pnl_percent=pnl_pct,
+                sec_type=contract.secType or "STK",
+                currency=contract.currency or "USD",
+                account=p.account if hasattr(p, 'account') else "",
+                strike=getattr(contract, 'strike', 0.0) or 0.0,
+                right=getattr(contract, 'right', '') or '',
+                expiry=getattr(contract, 'lastTradeDateOrContractMonth', '') or ''
             ))
         return positions
+
+    def get_portfolio_items_raw(self):
+        """返回原始 ib.portfolio() 数据，供其他分析模块使用"""
+        return self.ib.portfolio()
+
+    def get_executions(self, client_id: int = None):
+        """获取近期成交记录（通常仅包含当天/近几天的数据）"""
+        try:
+            filt = ExecutionFilter()
+            if client_id is not None:
+                filt.clientId = client_id
+            trades = self.ib.reqExecutions(filt)
+            return trades
+        except Exception as e:
+            print(f"❌ 获取成交记录失败: {e}")
+            return []
+
+    def get_fills(self):
+        """获取近期成交明细"""
+        try:
+            return self.ib.fills()
+        except Exception as e:
+            print(f"❌ 获取成交明细失败: {e}")
+            return []
+
+    def get_option_ticker(self, contract):
+        """获取期权 ticker（含 modelGreeks）"""
+        try:
+            self.ib.reqMarketDataType(3)
+            ticker = self.ib.reqMktData(contract, genericTickList='106', snapshot=False)
+            self.ib.sleep(2)  # 等待 greeks 数据到达
+            self.ib.cancelMktData(contract)
+            return ticker
+        except Exception as e:
+            print(f"❌ 获取期权 ticker 失败: {e}")
+            return None
 
     def search_symbol(self, symbol: str) -> Optional[Contract]:
         """搜索股票代码，返回 qualified Contract"""
@@ -239,6 +289,8 @@ class IBKRReadOnlyClient:
         low_52w = "N/A"
         avg_volume = "N/A"
 
+        sector = ""
+
         # 尝试获取 fundamental data XML
         try:
             xml_data = self.ib.reqFundamentalData(contract, 'ReportSnapshot')
@@ -251,11 +303,16 @@ class IBKRReadOnlyClient:
                     if name_el is not None:
                         company_name = name_el.text
 
-                # 解析行业
+                # 解析行业与板块
                 ind_el = root.find('.//Industry')
                 if ind_el is not None:
                     industry = ind_el.get('type', '')
                     category = ind_el.text or ''
+
+                # 解析 sector
+                sector_el = root.find('.//Sector')
+                if sector_el is not None:
+                    sector = sector_el.text or sector_el.get('type', '')
 
                 # 解析财务指标
                 for ratio in root.findall('.//Ratio'):
@@ -295,6 +352,7 @@ class IBKRReadOnlyClient:
             company_name=company_name,
             industry=industry,
             category=category,
+            sector=sector,
             market_cap=market_cap,
             pe_ratio=pe_ratio,
             eps=eps,

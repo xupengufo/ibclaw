@@ -226,8 +226,15 @@ ib.disconnectedEvent += on_disconnect
 | 实时行情 | ✅ | 任意股票的价格（延迟 15 分钟，订阅后可实时） |
 | 深度基本面 | ✅ | 公司市值、P/E 市盈率、EPS、股息收益及行业分类 |
 | 历史 K 线走势 | ✅ | 任意时间跨度的 OHLCV 数据 |
-| 市场大盘扫描 | ✅ | 涨幅榜、跌幅榜、成交量异动榜 |
+| 市场大盘扫描 | ✅ | 8 种预设策略（涨跌幅榜、异动榜、52周新高、高股息、低市盈率等） |
 | 最新财经事件 | ✅ | Yahoo Finance RSS 新闻聚合 + AI 事件驱动分析 |
+| 组合分析 | ✅ | 资产配置分布、持仓集中度(HHI)、组合 Beta、相关性矩阵 |
+| 绩效追踪 | ✅ | 基准对比(vs SPY)、盈亏归因、最大回撤 |
+| 期权分析 | ✅ | Greeks(Δ/Γ/Θ/ν)、到期日日历、组合级 Greeks 汇总 |
+| 主动告警 | ✅ | 价格异动、集中度超标、期权到期、目标价触达（Telegram 推送） |
+| 交易复盘 | ✅ | 成交记录、胜率/盈亏比统计 |
+| Watchlist | ✅ | 自选股管理、目标买卖价、批量行情查看 |
+| 数据导出 | ✅ | 持仓 CSV、资产配置 CSV、综合投资报告 |
 | 下单 | ❌ | **完全不支持** |
 | 修改/取消订单 | ❌ | **完全不支持** |
 
@@ -243,28 +250,41 @@ ib.disconnectedEvent += on_disconnect
 
 ```
 ibkr-trader/
-├── SKILL.md              # OpenClaw Skill 描述文件
-├── README.md             # 本文档
+├── SKILL.md                  # OpenClaw Skill 描述文件
+├── README.md                 # 本文档
 ├── scripts/
-│   ├── setup.sh          # v2 安装脚本（Debian/macOS）
-│   ├── ibkr_readonly.py  # 核心只读查询客户端（ib_insync 版）
-│   └── keepalive.py      # 健康检查脚本（进程/端口监控 + Telegram 通知）
+│   ├── setup.sh              # 安装脚本（Debian/macOS）
+│   ├── ibkr_readonly.py      # 核心只读查询客户端
+│   ├── keepalive.py          # 健康检查脚本
+│   ├── portfolio_analytics.py # 组合分析 + 绩效追踪
+│   ├── options_analytics.py  # 期权分析 (Greeks/到期日历)
+│   ├── trade_review.py       # 交易复盘 (胜率/盈亏比)
+│   ├── alerts.py             # 主动告警 (Telegram 推送)
+│   ├── scanner_enhanced.py   # 增强扫描器 + Watchlist
+│   └── export.py             # 数据导出 (CSV/报告)
 └── references/
-    └── ...               # 参考文档
+    └── ...                   # 参考文档
 ```
 
 **部署后在 `~/trading/` 目录下的文件：**
 
 ```
 ~/trading/
-├── .env                  # IB Gateway 配置（端口、IP）
-├── ibkr_readonly.py      # 核心查询脚本副本
-├── keepalive.py          # 健康检查脚本副本
-├── venv/                 # Python 虚拟环境（含 ib_insync）
-├── run-readonly.sh       # 一键运行主查询脚本
-├── run-keepalive.sh      # 一键运行健康检查脚本
-├── keepalive.log         # 健康检查日志
-└── ...                   # 其他你自定义的辅助文件
+├── .env                      # IB Gateway 配置（端口、IP、告警阈值）
+├── ibkr_readonly.py          # 核心查询脚本
+├── keepalive.py              # 健康检查脚本
+├── portfolio_analytics.py    # 组合分析模块
+├── options_analytics.py     # 期权分析模块
+├── trade_review.py          # 交易复盘模块
+├── alerts.py                # 主动告警模块
+├── scanner_enhanced.py      # 增强扫描器 + Watchlist
+├── export.py                # 数据导出模块
+├── venv/                    # Python 虚拟环境
+├── run-readonly.sh          # 一键运行主查询脚本
+├── run-keepalive.sh         # 一键运行健康检查
+├── run-alerts.sh            # 一键运行告警检查
+├── run-report.sh            # 一键生成投资报告
+└── ...                      # 日志、状态文件等
 ```
 
 ---
