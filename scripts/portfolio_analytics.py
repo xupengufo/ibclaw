@@ -7,6 +7,8 @@
 
 import math
 import statistics
+import json
+import dataclasses
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 
@@ -425,6 +427,15 @@ def get_max_drawdown(client, symbol: str = None, period: str = "1 Y") -> Optiona
 
 
 # ─── 格式化输出 ───────────────────────────────────────────────
+
+def to_json_portfolio(data) -> str:
+    """统一输出 JSON，供 AI 进行精准数字推理"""
+    def default_encoder(obj):
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        return str(obj)
+    
+    return json.dumps(data, default=default_encoder, ensure_ascii=False, indent=2)
 
 def format_allocation(alloc: Dict[str, List[AllocationItem]]) -> str:
     lines = []

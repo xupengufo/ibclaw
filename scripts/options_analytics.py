@@ -6,6 +6,8 @@
 """
 
 import math
+import json
+import dataclasses
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict
@@ -248,6 +250,15 @@ def get_portfolio_greeks_summary(client) -> Optional[PortfolioGreeksSummary]:
 
 
 # ─── 格式化输出 ───────────────────────────────────────────────
+
+def to_json_options(data) -> str:
+    """统一输出 JSON，供 AI 进行精准数字推理"""
+    def default_encoder(obj):
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        return str(obj)
+    
+    return json.dumps(data, default=default_encoder, ensure_ascii=False, indent=2)
 
 def format_option_greeks(greeks: OptionGreeks) -> str:
     right_name = "看涨" if greeks.right == "C" else "看跌"

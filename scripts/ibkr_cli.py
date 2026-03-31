@@ -170,37 +170,55 @@ def cmd_analyze(args):
 
 def cmd_fundamentals(args):
     """基本面查询"""
-    if not args:
-        print("用法: python ibkr_cli.py fundamentals SYMBOL [SYMBOL2 ...]")
+    if not args or (len(args) == 1 and args[0] in ("-h", "--help")):
+        print("用法: python ibkr_cli.py fundamentals SYMBOL [SYMBOL2 ...] [--json]")
         sys.exit(1)
 
+    json_output = "--json" in args
+    symbols = [a for a in args if a != "--json"]
+
     client = _connect_client()
-    for symbol in args:
+    json_results = {}
+
+    for symbol in symbols:
         symbol = symbol.upper()
         fund = client.get_fundamentals(symbol)
-        if fund:
-            print(f"📊 {symbol} 基本面数据")
-            print("=" * 50)
-            print(f"  公司: {fund.company_name}")
-            print(f"  行业: {fund.industry} / {fund.category}")
-            if fund.sector:
-                print(f"  板块: {fund.sector}")
-            print(f"  市值: {fund.market_cap}")
-            print(f"  P/E 市盈率: {fund.pe_ratio}")
-            print(f"  EPS: {fund.eps}")
-            print(f"  股息收益率: {fund.dividend_yield}")
-            print(f"  52周最高: {fund.high_52w}")
-            print(f"  52周最低: {fund.low_52w}")
-            print(f"  10日均量: {fund.avg_volume}")
+        if json_output:
+            if fund:
+                import dataclasses
+                json_results[symbol] = dataclasses.asdict(fund)
+            else:
+                json_results[symbol] = {"error": "未找到基本面数据"}
         else:
-            print(f"⚠️ {symbol}: 未找到基本面数据（股票代码可能无效，或需要额外数据订阅）")
-        print()
+            if fund:
+                print(f"📊 {symbol} 基本面数据")
+                print("=" * 50)
+                print(f"  公司: {fund.company_name}")
+                print(f"  行业: {fund.industry} / {fund.category}")
+                if fund.sector:
+                    print(f"  板块: {fund.sector}")
+                print(f"  市值: {fund.market_cap}")
+                print(f"  P/E 市盈率: {fund.pe_ratio}")
+                print(f"  EPS: {fund.eps}")
+                print(f"  股息收益率: {fund.dividend_yield}")
+                print(f"  52周最高: {fund.high_52w}")
+                print(f"  52周最低: {fund.low_52w}")
+                print(f"  10日均量: {fund.avg_volume}")
+            else:
+                print(f"⚠️ {symbol}: 未找到基本面数据（股票代码可能无效，或需要额外数据订阅）")
+            print()
+
+    if json_output:
+        import json
+        print(json.dumps(json_results, ensure_ascii=False, indent=2))
 
     _safe_disconnect(client)
 
 
 def cmd_portfolio(args):
     """组合分析"""
+    json_output = "--json" in args
+    args = [a for a in args if a != "--json"]
     subcommand = args[0] if args else "all"
     client = _connect_client()
 
@@ -209,114 +227,160 @@ def cmd_portfolio(args):
         get_correlation_matrix, get_benchmark_comparison,
         get_performance_attribution, get_max_drawdown,
         format_allocation, format_concentration, format_benchmark,
-        format_attribution, format_drawdown
+        format_attribution, format_drawdown, to_json_portfolio
     )
 
+    json_results = {}
+
     if subcommand in ("allocation", "all"):
-        print("⏳ 正在分析资产配置...")
+        if not json_output: print("⏳ 正在分析资产配置...")
         alloc = get_portfolio_allocation(client)
-        print(format_allocation(alloc))
-        print()
+        if json_output:
+            json_results["allocation"] = alloc
+        else:
+            print(format_allocation(alloc))
+            print()
 
     if subcommand in ("concentration", "all"):
-        print("⏳ 正在分析持仓集中度...")
+        if not json_output: print("⏳ 正在分析持仓集中度...")
         conc = get_concentration_risk(client)
-        print(format_concentration(conc))
-        print()
+        if json_output:
+            json_results["concentration"] = conc
+        else:
+            print(format_concentration(conc))
+            print()
 
     if subcommand in ("beta", "all"):
-        print("⏳ 正在计算组合 Beta...")
+        if not json_output: print("⏳ 正在计算组合 Beta...")
         beta = get_portfolio_beta(client, "SPY", "6 M")
-        if beta:
-            print(f"📊 组合 Beta: {beta['portfolio_beta']} (vs {beta['benchmark']}, {beta['period']})")
-            for h in beta["holdings_beta"]:
-                print(f"   {h['symbol']:8s} β={h['beta']:+.3f}  权重={h['weight']:.1f}%")
+        if json_output:
+            json_results["beta"] = beta
         else:
-            print("⚠️ 无法计算 Beta: 股票持仓不足或历史数据不足")
-        print()
+            if beta:
+                print(f"📊 组合 Beta: {beta['portfolio_beta']} (vs {beta['benchmark']}, {beta['period']})")
+                for h in beta["holdings_beta"]:
+                    print(f"   {h['symbol']:8s} β={h['beta']:+.3f}  权重={h['weight']:.1f}%")
+            else:
+                print("⚠️ 无法计算 Beta: 股票持仓不足或历史数据不足")
+            print()
 
     if subcommand in ("benchmark", "all"):
         benchmark = args[1] if len(args) > 1 and subcommand == "benchmark" else "SPY"
         period = args[2] if len(args) > 2 and subcommand == "benchmark" else "3 M"
-        print(f"⏳ 正在对比基准 ({benchmark}, {period})...")
+        if not json_output: print(f"⏳ 正在对比基准 ({benchmark}, {period})...")
         comp = get_benchmark_comparison(client, benchmark, period)
-        if comp:
-            print(format_benchmark(comp))
+        if json_output:
+            json_results["benchmark_comparison"] = comp
         else:
-            print("⚠️ 无法计算基准对比: 股票持仓不足或历史数据不足")
-        print()
+            if comp:
+                print(format_benchmark(comp))
+            else:
+                print("⚠️ 无法计算基准对比: 股票持仓不足或历史数据不足")
+            print()
 
     if subcommand in ("attribution", "all"):
-        print("⏳ 正在分析盈亏归因...")
+        if not json_output: print("⏳ 正在分析盈亏归因...")
         attrs = get_performance_attribution(client)
-        print(format_attribution(attrs))
-        print()
+        if json_output:
+            json_results["attribution"] = attrs
+        else:
+            print(format_attribution(attrs))
+            print()
 
     if subcommand in ("drawdown", "all"):
         target = args[1] if len(args) > 1 and subcommand == "drawdown" else None
-        print("⏳ 正在计算最大回撤...")
+        if not json_output: print("⏳ 正在计算最大回撤...")
         dd = get_max_drawdown(client, target, "1 Y")
-        if dd:
-            print(format_drawdown(dd))
+        if json_output:
+            json_results["drawdown"] = dd
         else:
-            print("⚠️ 无法计算最大回撤: 历史数据不足")
-        print()
+            if dd:
+                print(format_drawdown(dd))
+            else:
+                print("⚠️ 无法计算最大回撤: 历史数据不足")
+            print()
 
     if subcommand in ("correlation", "all"):
-        print("⏳ 正在计算相关性矩阵...")
+        if not json_output: print("⏳ 正在计算相关性矩阵...")
         corr = get_correlation_matrix(client, "3 M")
-        if corr:
-            print("📊 高相关性持仓对:")
-            for pair in corr.get("high_correlation_pairs", []):
-                print(f"   {pair['pair']}: {pair['correlation']:+.3f} ({pair['warning']})")
-            if not corr.get("high_correlation_pairs"):
-                print("   ✅ 未发现高度相关的持仓对")
+        if json_output:
+            json_results["correlation"] = corr
         else:
-            print("⚠️ 股票持仓不足两只，无法计算相关性")
-        print()
+            if corr:
+                print("📊 高相关性持仓对:")
+                for pair in corr.get("high_correlation_pairs", []):
+                    print(f"   {pair['pair']}: {pair['correlation']:+.3f} ({pair['warning']})")
+                if not corr.get("high_correlation_pairs"):
+                    print("   ✅ 未发现高度相关的持仓对")
+            else:
+                print("⚠️ 股票持仓不足两只，无法计算相关性")
+            print()
+
+    if json_output:
+        print(to_json_portfolio(json_results))
 
     _safe_disconnect(client)
 
 
 def cmd_options(args):
     """期权分析"""
+    json_output = "--json" in args
+    args = [a for a in args if a != "--json"]
     subcommand = args[0] if args else "all"
     client = _connect_client()
 
     from options_analytics import (
         get_expiration_calendar, get_portfolio_greeks_summary,
         get_option_greeks, format_expiration_calendar,
-        format_greeks_summary, format_option_greeks
+        format_greeks_summary, format_option_greeks, to_json_options
     )
 
+    json_results = {}
+
     if subcommand in ("calendar", "all"):
-        print("⏳ 正在获取到期日日历...")
+        if not json_output: print("⏳ 正在获取到期日日历...")
         calendar = get_expiration_calendar(client)
-        print(format_expiration_calendar(calendar))
-        print()
+        if json_output:
+            json_results["calendar"] = calendar
+        else:
+            print(format_expiration_calendar(calendar))
+            print()
 
     if subcommand in ("greeks", "all"):
         positions = client.get_positions()
         opt_positions = [p for p in positions if p.sec_type == "OPT"]
-        if opt_positions:
-            print("📊 期权 Greeks 明细:")
-            print("=" * 60)
-            for p in opt_positions:
-                greeks = get_option_greeks(client, p)
-                if greeks:
-                    print(format_option_greeks(greeks))
-                    print()
+        
+        greeks_list = []
+        for p in opt_positions:
+            g = get_option_greeks(client, p)
+            if g: greeks_list.append(g)
+
+        if json_output:
+            json_results["greeks"] = greeks_list
         else:
-            print("ℹ️ 无期权持仓")
+            if greeks_list:
+                print("📊 期权 Greeks 明细:")
+                print("=" * 60)
+                for g in greeks_list:
+                    print(format_option_greeks(g))
+                    print()
+            else:
+                print("ℹ️ 无期权持仓")
 
     if subcommand in ("summary", "all"):
-        print("⏳ 正在计算组合 Greeks 汇总...")
+        if not json_output: print("⏳ 正在计算组合 Greeks 汇总...")
         summary = get_portfolio_greeks_summary(client)
-        if summary:
-            print(format_greeks_summary(summary))
+        if json_output:
+            json_results["summary"] = summary
         else:
-            print("ℹ️ 无期权持仓，跳过 Greeks 汇总")
-        print()
+            if summary:
+                print(format_greeks_summary(summary))
+            else:
+                print("ℹ️ 无期权持仓，跳过 Greeks 汇总")
+            print()
+
+    if json_output:
+        print(to_json_options(json_results))
 
     _safe_disconnect(client)
 

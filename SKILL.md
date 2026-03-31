@@ -56,7 +56,7 @@ metadata: {"openclaw":{"requires":{"os":["darwin","linux"],"bins":["bash","pytho
 **为什么要输出分析而非原始数字？** 用户使用这个 Skill 是为了获得投资洞察，而不是原始数据。当你只返回数字时，用户需要自己做解读工作——这正是你应该做的。每次返回数据时，请附上你的分析判断和逻辑推演。
 
 **为什么要使用 JSON 格式？**
-对于技术分析和市场扫描，如果不带 `--json`，你获取的只是针对人类的“二手总结文本”。作为 AI，为了保持分析的客观性且方便你编写代码链式处理数据，你应当总是附加 `--json` 选项。以此获取真实的数值（如 RSI 值、市值大小），并根据你自身的常识框架**独立推演结论**。
+对于所有分析请求（技术面、基本面、持仓风险、组合概况、期权Greeks等），如果不带 `--json`，你获取的只是针对人类的“自带主观标点与进度的二手总结文本”。作为 AI，为了保持分析的客观性且方便你编写代码链式处理数据，你应当**总是附加 `--json` 选项**。以此获取纯净的嵌套字典，并根据你自身的常识框架**独立推演结论**。
 
 **为什么风险提示不能省？** 投资决策的后果由用户承担。每份研报结尾加上"以上分析仅供参考，不构成投资建议"，既是对用户负责，也是法律保护。
 
@@ -95,14 +95,14 @@ bash {baseDir}/scripts/setup.sh ~/trading
 | 持仓、余额、净值 | `./ibkr quote` 或 `./run-readonly.sh` |
 | 某只股票现在多少钱 | `./ibkr quote AAPL` |
 | 分析XX股票、走势、技术面 | `./ibkr analyze AAPL --json` |
-| 基本面、市值、PE、财报 | `./ibkr fundamentals AAPL` |
+| 基本面、市值、PE、财报 | `./ibkr fundamentals AAPL --json` |
 | 历史 K 线 | `./ibkr history AAPL --period '3 M'` |
-| 组合配置、集中度、Beta | `./ibkr portfolio all` |
+| 组合配置、集中度、Beta | `./ibkr portfolio all --json` |
 | 对比基准、Alpha | `./ibkr portfolio benchmark SPY '3 M'` |
 | 盈亏归因 | `./ibkr portfolio attribution` |
 | 最大回撤 | `./ibkr portfolio drawdown AAPL` |
 | 相关性矩阵 | `./ibkr portfolio correlation` |
-| 期权、Greeks、到期 | `./ibkr options all` |
+| 期权、Greeks、到期 | `./ibkr options all --json` |
 | 交易记录、胜率 | `./ibkr trades all` |
 | 市场扫描、条件选股 | `./ibkr scanner --code LOW_PE_RATIO --price-below 50 --json` |
 | 自选股、Watchlist | `./ibkr watchlist list` |
@@ -120,7 +120,7 @@ bash {baseDir}/scripts/setup.sh ~/trading
 
 1. **📊 数据锚定**（建立事实基础）
    ```bash
-   ./ibkr fundamentals AAPL
+   ./ibkr fundamentals AAPL --json
    ./ibkr analyze AAPL --json
    ./ibkr news AAPL
    ```
@@ -156,7 +156,7 @@ IBKR API 本身不支持跨维度（如“既限制PE，又限制行业，又限
    ```
 
 2. **🧠 第二步：AI 本地细筛（多维逻辑推演）**
-   拿到 JSON 数组后，遍历这些股票（可以通过小批量一次查多个），调用 `./ibkr fundamentals SYMBOL` 或 `./ibkr analyze SYMBOL1 SYMBOL2 --json`，在你的内存上下文中剔除不符合用户“行业约束（如科技股）”或“技术面约束（如 RSI<30）”的股票。
+   拿到 JSON 数组后，遍历这些股票（可以通过小批量一次查多个），调用 `./ibkr fundamentals SYMBOL --json` 或 `./ibkr analyze SYMBOL1 SYMBOL2 --json`，在你的内存上下文中剔除不符合用户“行业约束（如科技股）”或“技术面约束（如 RSI<30）”的股票。
 
 3. **📄 输出推荐报告**
    向用户呈现你千锤百炼筛选出的 3-5 只股票，并解释你的筛选逻辑。
@@ -167,7 +167,7 @@ IBKR API 本身不支持跨维度（如“既限制PE，又限制行业，又限
 
 1. **📦 组合基础数据**
    ```bash
-   ./ibkr portfolio all
+   ./ibkr portfolio all --json
    ```
    这会一次性输出：资产配置、持仓集中度(HHI)、组合Beta、基准对比(vs SPY)、盈亏归因、最大回撤、相关性矩阵。
 
