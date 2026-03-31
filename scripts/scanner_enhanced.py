@@ -7,6 +7,7 @@
 
 import os
 import json
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Dict
@@ -53,6 +54,64 @@ SCAN_PRESETS: Dict[str, dict] = {
         "description": "大盘股中涨幅最大的",
         "extra_filters": [TagValue("marketCapAbove", "10000000000")]  # > 100亿
     },
+
+    # ─── 🧨 期权与波动率 ───
+    "期权异动": {
+        "scan_code": "HOT_BY_OPT_VOLUME",
+        "description": "期权成交量异常飙升"
+    },
+    "最高波动率": {
+        "scan_code": "HIGH_OPT_IMP_VOLAT",
+        "description": "期权隐含波动率(IV)极高"
+    },
+    "最低波动率": {
+        "scan_code": "LOW_OPT_IMP_VOLAT",
+        "description": "期权隐含波动率(IV)极低"
+    },
+    "期权最活跃": {
+        "scan_code": "OPT_VOLUME_MOST_ACTIVE",
+        "description": "期权交易最活跃的标的"
+    },
+    
+    # ─── ⚡ 盘面与高频特征 ───
+    "成交笔数最多": {
+        "scan_code": "TOP_TRADE_COUNT",
+        "description": "当日总成交笔数最高"
+    },
+    "最高交易频率": {
+        "scan_code": "TOP_TRADE_RATE",
+        "description": "瞬时换手和交易频率极高"
+    },
+    "大幅高开": {
+        "scan_code": "TOP_OPEN_PERC_GAIN",
+        "description": "开盘跳空高开最大"
+    },
+    "大幅低开": {
+        "scan_code": "TOP_OPEN_PERC_LOSE",
+        "description": "开盘跳空低开最大"
+    },
+    "停牌熔断": {
+        "scan_code": "HALTED",
+        "description": "当日因剧烈波动被交易所停牌/熔断"
+    },
+
+    # ─── 📅 周期动量 ───
+    "13周新高": {
+        "scan_code": "HIGH_VS_13W_HL",
+        "description": "接近或突破 13周（约一季度）新高"
+    },
+    "13周新低": {
+        "scan_code": "LOW_VS_13W_HL",
+        "description": "接近或跌破 13周（约一季度）新低"
+    },
+    "26周新高": {
+        "scan_code": "HIGH_VS_26W_HL",
+        "description": "接近或突破 26周（约半年）新高"
+    },
+    "26周新低": {
+        "scan_code": "LOW_VS_26W_HL",
+        "description": "接近或跌破 26周（约半年）新低"
+    },
 }
 
 
@@ -94,28 +153,53 @@ def list_scan_presets() -> Dict[str, str]:
     return {k: v["description"] for k, v in SCAN_PRESETS.items()}
 
 
-def run_enhanced_scanner(client, preset_name: str = "涨幅榜", size: int = 10) -> List[ScanResult]:
+def run_enhanced_scanner(
+    client, 
+    preset_name: Optional[str] = None, 
+    scan_code: Optional[str] = None,
+    size: int = 10,
+    above_price: Optional[float] = None,
+    below_price: Optional[float] = None,
+    above_volume: Optional[int] = None,
+    market_cap_above: Optional[float] = None,
+    market_cap_below: Optional[float] = None
+) -> List[ScanResult]:
     """
-    增强扫描器：使用预设 + 为每个结果附带实时行情 + 标注是否已持有
+    增强扫描器：支持动态参数过滤 + 为每个结果附带实时行情 + 标注是否已持有
     """
-    preset = SCAN_PRESETS.get(preset_name)
-    if not preset:
-        print(f"❌ 未知预设: {preset_name}")
-        print(f"可用预设: {', '.join(SCAN_PRESETS.keys())}")
-        return []
-
-    try:
-        sub = ScannerSubscription(
-            instrument='STK',
-            locationCode='STK.US.MAJOR',
-            scanCode=preset["scan_code"],
-            numberOfRows=size
-        )
-
-        # 基础过滤 + 自定义过滤
-        tag_values = [TagValue('marketCapAbove', '100000000')]
+    code = "TOP_PERC_GAIN"
+    tag_values = []
+    
+    # 模式一：预设模式
+    if preset_name:
+        preset = SCAN_PRESETS.get(preset_name)
+        if not preset:
+            print(f"❌ 未知预设: {preset_name}")
+            print(f"可用预设: {', '.join(SCAN_PRESETS.keys())}")
+            return []
+        code = preset["scan_code"]
         if "extra_filters" in preset:
             tag_values.extend(preset["extra_filters"])
+    
+    # 模式二：动态模式
+    if scan_code:
+        code = scan_code
+
+    try:
+        # 组装 ScannerSubscription 参数
+        sub_kwargs = {
+            'instrument': 'STK',
+            'locationCode': 'STK.US.MAJOR',
+            'scanCode': code,
+            'numberOfRows': size
+        }
+        if above_price is not None: sub_kwargs['abovePrice'] = above_price
+        if below_price is not None: sub_kwargs['belowPrice'] = below_price
+        if above_volume is not None: sub_kwargs['aboveVolume'] = above_volume
+        if market_cap_above is not None: sub_kwargs['marketCapAbove'] = market_cap_above
+        if market_cap_below is not None: sub_kwargs['marketCapBelow'] = market_cap_below
+
+        sub = ScannerSubscription(**sub_kwargs)
 
         results = client.ib.reqScannerData(sub, scannerSubscriptionFilterOptions=tag_values)
     except Exception as e:
@@ -272,6 +356,14 @@ def get_watchlist_quotes(client) -> List[WatchlistItem]:
 
 
 # ─── 格式化输出 ───────────────────────────────────────────────
+
+def to_json_scan_results(results: List[ScanResult]) -> str:
+    """输出 JSON 格式的扫描结果供 AI 推理"""
+    data = []
+    for r in results:
+        data.append(dataclasses.asdict(r))
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
 
 def format_scan_results(results: List[ScanResult], preset_name: str) -> str:
     if not results:

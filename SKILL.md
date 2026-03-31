@@ -55,7 +55,8 @@ metadata: {"openclaw":{"requires":{"os":["darwin","linux"],"bins":["bash","pytho
 
 **为什么要输出分析而非原始数字？** 用户使用这个 Skill 是为了获得投资洞察，而不是原始数据。当你只返回数字时，用户需要自己做解读工作——这正是你应该做的。每次返回数据时，请附上你的分析判断和逻辑推演。
 
-**为什么技术分析是标配？** 技术分析评分能快速传达一只股票的多空状态（-100 到 +100），即使用户只问"AAPL 怎么样"，附上技术评分也能让回答立刻有深度。
+**为什么要使用 JSON 格式？**
+对于技术分析和市场扫描，如果不带 `--json`，你获取的只是针对人类的“二手总结文本”。作为 AI，为了保持分析的客观性且方便你编写代码链式处理数据，你应当总是附加 `--json` 选项。以此获取真实的数值（如 RSI 值、市值大小），并根据你自身的常识框架**独立推演结论**。
 
 **为什么风险提示不能省？** 投资决策的后果由用户承担。每份研报结尾加上"以上分析仅供参考，不构成投资建议"，既是对用户负责，也是法律保护。
 
@@ -93,7 +94,7 @@ bash {baseDir}/scripts/setup.sh ~/trading
 |---------|---------|
 | 持仓、余额、净值 | `./ibkr quote` 或 `./run-readonly.sh` |
 | 某只股票现在多少钱 | `./ibkr quote AAPL` |
-| 分析XX股票、走势、技术面 | `./ibkr analyze AAPL` |
+| 分析XX股票、走势、技术面 | `./ibkr analyze AAPL --json` |
 | 基本面、市值、PE、财报 | `./ibkr fundamentals AAPL` |
 | 历史 K 线 | `./ibkr history AAPL --period '3 M'` |
 | 组合配置、集中度、Beta | `./ibkr portfolio all` |
@@ -103,7 +104,7 @@ bash {baseDir}/scripts/setup.sh ~/trading
 | 相关性矩阵 | `./ibkr portfolio correlation` |
 | 期权、Greeks、到期 | `./ibkr options all` |
 | 交易记录、胜率 | `./ibkr trades all` |
-| 涨跌榜、扫描、异动 | `./ibkr scanner 涨幅榜 10` |
+| 市场扫描、条件选股 | `./ibkr scanner --code LOW_PE_RATIO --price-below 50 --json` |
 | 自选股、Watchlist | `./ibkr watchlist list` |
 | 添加自选股 | `./ibkr watchlist add AAPL --buy 170 --sell 220` |
 | 导出报告/CSV | `./ibkr export all` 或 `./run-report.sh` |
@@ -120,13 +121,13 @@ bash {baseDir}/scripts/setup.sh ~/trading
 1. **📊 数据锚定**（建立事实基础）
    ```bash
    ./ibkr fundamentals AAPL
-   ./ibkr analyze AAPL
+   ./ibkr analyze AAPL --json
    ./ibkr news AAPL
    ```
 
 2. **🔍 全网检索**（捕捉最新事件）— 联网搜索最新财报、竞品动态、行业变化。数据锚定提供"是什么"，全网检索解释"为什么"。不可联网时标注"外部检索不可用"。
 
-3. **🧠 逻辑推演**（形成判断）— 综合基本面 + 技术面 + 事件驱动，分析深层因果逻辑。
+3. **🧠 逻辑推演**（形成判断）— 综合基本面 + 技术指标裸数据（来自 JSON） + 事件驱动，分析深层因果逻辑。**不要复读主观分数，你要自己看着 RSI、MACD、布林带的值去判断这只股票是超买、超卖还是具备爆发潜力。**
 
 4. **📄 研报输出** — 按以下结构呈现：
 
@@ -135,13 +136,30 @@ bash {baseDir}/scripts/setup.sh ~/trading
    - 技术评分: XX/100 (看多/看空)
    - 均线排列、RSI、MACD信号
    - 支撑位: $XX / 阻力位: $XX
-2. 🏢 基本面与估值
+2. **🏢 基本面与估值**
    - P/E、EPS、市值、行业地位
-3. 🌪️ 核心事件驱动 (web search)
-4. 🧠 竞品与护城河分析
-5. 💡 综合研判与投资视角
+3. **🌪️ 核心事件驱动** (web search)
+4. **🧠 竞品与护城河分析**
+5. **💡 综合研判与投资视角**
    ⚠️ 以上分析仅供参考，不构成投资建议
 ```
+
+#### 对于复合条件选股请求（"低市盈率科技股"、"市值>100亿的医疗股"、"技术面超卖的股票"）
+
+IBKR API 本身不支持跨维度（如“既限制PE，又限制行业，又限制RSI”）的直接过滤。当你遇到这种复杂请求时，你必须作为“大脑”承担本地过滤的工作。执行**“粗筛 + 细筛”两步法**：
+
+1. **🕸️ 第一步：API 粗筛（获取候选池）**
+   利用 IBKR 强大的排名算法，带上 `--json` 获取原始数据。支持的过滤参数有 `--code` (必须提供), `--price-above`, `--price-below`, `--cap-above`, `--cap-below`, `--vol-above`。
+   ```bash
+   # 例：获取市盈率极低的股票，限定市值 > 10000000 且 价格 < 50
+   ./ibkr scanner --code LOW_PE_RATIO --cap-above 10000000 --price-below 50 --json
+   ```
+
+2. **🧠 第二步：AI 本地细筛（多维逻辑推演）**
+   拿到 JSON 数组后，遍历这些股票（可以通过小批量一次查多个），调用 `./ibkr fundamentals SYMBOL` 或 `./ibkr analyze SYMBOL1 SYMBOL2 --json`，在你的内存上下文中剔除不符合用户“行业约束（如科技股）”或“技术面约束（如 RSI<30）”的股票。
+
+3. **📄 输出推荐报告**
+   向用户呈现你千锤百炼筛选出的 3-5 只股票，并解释你的筛选逻辑。
 
 #### 对于组合分析类请求（"我的组合怎么样"、"风险分析"、"复盘"）
 
@@ -155,8 +173,8 @@ bash {baseDir}/scripts/setup.sh ~/trading
 
 2. **📊 持仓技术面扫描**
    ```bash
-   # 对每只持仓跑技术分析，获取强弱分布
-   ./ibkr analyze SYMBOL1 SYMBOL2 SYMBOL3
+   # 获取技术指标裸数据供你推理
+   ./ibkr analyze SYMBOL1 SYMBOL2 SYMBOL3 --json
    ```
    或者如果持仓不多，可以逐个分析。
 
@@ -172,7 +190,7 @@ bash {baseDir}/scripts/setup.sh ~/trading
       - vs SPY 的 Alpha
       - 各持仓盈亏贡献
       - 最大回撤
-   5. 🎯 技术面强弱分布 (各持仓评分排名)
+   5. 🎯 技术面强弱分布 (基于你的独立判断，评出最强与最弱持仓)
    6. 💡 改进建议
       ⚠️ 以上分析仅供参考，不构成投资建议
    ```

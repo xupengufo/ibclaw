@@ -1,64 +1,69 @@
-# 市场扫描策略参考
+# 市场扫描策略参考 (Dynamic Scanner API)
 
-本项目的 `scanner_enhanced.py` 内置 8 种扫描预设，均通过 IBKR Scanner API 实现。
+本文档旨在为 AI Agent 提供调用 `./ibkr scanner` 时的参数组合指引。原有的中文“预设”虽被保留以供快捷查询，但**强烈建议 AI Agent 直接使用 `--code` 结合动态过滤参数**来实现高阶的“粗筛”。
 
-## 可用预设
-
-| 预设名称 | scanCode | 说明 | 适用场景 |
-|---------|----------|------|---------|
-| 涨幅榜 | `TOP_PERC_GAIN` | 今日涨幅最大的股票 | 捕捉强势股、事件驱动 |
-| 跌幅榜 | `TOP_PERC_LOSE` | 今日跌幅最大的股票 | 寻找超跌反弹机会 |
-| 最活跃 | `MOST_ACTIVE` | 成交量最大的股票 | 关注市场焦点 |
-| 成交异动 | `HOT_BY_VOLUME` | 成交量异动最大的股票 | 发现异常放量标的 |
-| 52周新高 | `HIGH_VS_52W_HL` | 接近或突破 52 周新高 | 趋势突破策略 |
-| 高股息 | `HIGH_DIVIDEND_YIELD_IB` | 股息收益率最高 | 收息策略、价值投资 |
-| 低市盈率 | `LOW_PE_RATIO` | P/E 最低 | 价值投资筛选 |
-| 高市值涨幅 | `TOP_PERC_GAIN` + 市值 > 100亿 | 大盘股涨幅榜 | 机构级标的筛选 |
-
-## 通过 CLI 使用
+## 1. 动态命令行接口
 
 ```bash
-# 列出所有预设
-./ibkr scanner list
+# 语法
+./ibkr scanner --code <SCAN_CODE> [--size N] [--price-above X] [--price-below Y] [--cap-above Z] [--cap-below W] [--vol-above V] [--json]
 
-# 运行扫描（默认 top 10）
-./ibkr scanner 涨幅榜
-./ibkr scanner 跌幅榜 20
-./ibkr scanner 52周新高 15
+# 示例：获取 20 只股价低于 $50 且市值大于 10亿 的最低 P/E 股票（机器可读格式）
+./ibkr scanner --code LOW_PE_RATIO --price-below 50 --cap-above 1000000000 --size 20 --json
 ```
 
-## 默认过滤条件
+## 2. 核心排名指标 (`--code`)
 
-所有扫描预设默认附带以下过滤条件：
-- `marketCapAbove = 100,000,000`（市值 > 1亿美元，排除微盘股）
+这是 API 的必须条件。IBKR 基于此指标对全市场美股进行排序。不能同时使用两个 `--code`。
 
-"高市值涨幅" 额外要求 `marketCapAbove = 10,000,000,000`（市值 > 100亿）。
+| scanCode (提取码) | 说明 | Agent 适用场景 |
+|------------------|------|---------------|
+| `TOP_PERC_GAIN` | 今日涨幅最大 | 捕捉强势股、事件驱动 |
+| `TOP_PERC_LOSE` | 今日跌幅最大 | 寻找超跌反弹机会、避雷 |
+| `MOST_ACTIVE` | 成交量最大 | 关注市场绝对焦点、流动性极好 |
+| `HOT_BY_VOLUME` | 成交量异动倍数最大 | 发现机构异常建仓/出逃标的 |
+| `HIGH_DIVIDEND_YIELD_IB` | 股息收益率最高 | 价值股、分红收息策略 |
+| `LOW_PE_RATIO` | P/E 最低 | 深度价值投资筛选 |
 
-## IBKR 支持的其他 scanCode
+**🧨 期权异动与波动率驱动**
+| `HOT_BY_OPT_VOLUME` | 期权成交量异常飙升 | 游资/机构建仓、末日轮博弈预警 |
+| `HIGH_OPT_IMP_VOLAT` | 最高隐含波动率(IV) | 卖方策略(Sell)、逼空(Gamma Squeeze)侯选 |
+| `LOW_OPT_IMP_VOLAT` | 最低隐含波动率(IV) | 寻找长线横盘、可能将变盘突破的标的 |
+| `OPT_VOLUME_MOST_ACTIVE` | 期权最活跃 | 期权流动性极好的核心大白马 |
 
-以下 scanCode 可直接用于 `ibkr_readonly.py` 的 `run_scanner()` 方法：
+**⚡ 微观盘面与高频交易特征**
+| `TOP_TRADE_COUNT` | 成交笔数最多 | 散户交投极度狂热、单笔微小的筹码博弈 |
+| `TOP_TRADE_RATE` | 最高交易频率 | 瞬时换手极快、多空血拼焦点 |
+| `TOP_OPEN_PERC_GAIN` | 开盘跳空高开最大 | 寻找动量延续、缺口回补 (Gap Fill) |
+| `TOP_OPEN_PERC_LOSE` | 开盘跳空低开最大 | 寻找恐慌抛售错杀标的 |
+| `HALTED` | 停牌 / 熔断 | 当日发生剧烈波动被交易所熔断停牌 |
 
-| scanCode | 说明 |
-|----------|------|
-| `TOP_PERC_GAIN` | 涨幅最大 |
-| `TOP_PERC_LOSE` | 跌幅最大 |
-| `MOST_ACTIVE` | 成交量最大 |
-| `HOT_BY_VOLUME` | 成交量异动 |
-| `HIGH_VS_52W_HL` | 52周新高 |
-| `LOW_VS_52W_HL` | 52周新低 |
-| `HIGH_DIVIDEND_YIELD_IB` | 高股息 |
-| `LOW_PE_RATIO` | 低市盈率 |
-| `HIGH_PE_RATIO` | 高市盈率 |
-| `TOP_OPEN_PERC_GAIN` | 开盘涨幅最大 |
-| `TOP_OPEN_PERC_LOSE` | 开盘跌幅最大 |
-| `HOT_BY_OPT_VOLUME` | 期权成交量异动 |
-| `HIGH_OPT_IMP_VOLAT` | 高隐含波动率 |
-| `LOW_OPT_IMP_VOLAT` | 低隐含波动率 |
-| `TOP_TRADE_COUNT` | 成交笔数最多 |
-| `TOP_TRADE_RATE` | 交易频率最高 |
-| `HIGH_VS_13W_HL` | 13周新高 |
-| `LOW_VS_13W_HL` | 13周新低 |
-| `HIGH_VS_26W_HL` | 26周新高 |
-| `LOW_VS_26W_HL` | 26周新低 |
+**📅 周期与动量跟踪**
+| `HIGH_VS_52W_HL` | 接近或突破 52周(1年)新高 | 经典动量策略 (Momentum)、右侧交易 |
+| `LOW_VS_52W_HL` | 接近或跌破 52周(1年)新低 | 寻找潜在底部 |
+| `HIGH_VS_13W_HL` | 接近 13周(一季度)新高 | 跟着财报季节奏做中线波段 |
+| `LOW_VS_13W_HL` | 接近 13周(一季度)新低 | 短期业绩不及预期导致超跌 |
+| `HIGH_VS_26W_HL` | 接近 26周(半年)新高 | 中期走势强劲标的 |
+| `LOW_VS_26W_HL` | 接近 26周(半年)新低 | 中期空头趋势深陷标的 |
 
-> 完整列表可通过 `ib.reqScannerParameters()` 获取。
+*注：你可以直接使用中文预设（如 `./ibkr scanner 期权异动`），也可以使用以上的底代码（如 `./ibkr scanner --code HOT_BY_OPT_VOLUME`）。完整列表可通过 API 的 `ib.reqScannerParameters()` 获取。*
+
+## 3. 数值过滤参数 (Dynamic Filters)
+
+在确定了 `--code` 排名后，可以使用以下参数对候选池进行约束。**注意：所有的金额/市值单位均为纯数字（美元）。**
+
+| 参数名 | 描述 | 使用建议 |
+|--------|------|---------|
+| `--price-above` | 股价下限 | 建议设为 `5` 排除仙股避险 |
+| `--price-below` | 股价上限 | 用于搜寻低价股 |
+| `--cap-above` | 市值下限 | 建议设为 `1000000000` (10亿) 排除微盘股，或 `10000000000` 寻找大白马 |
+| `--cap-below` | 市值上限 | 用于寻找小盘股 (Small-cap) |
+| `--vol-above` | 成交量下限 | 确保标的具有足够流动性 |
+| `--size` | 输出数量上限 | 默认 10，最多获取前 N 只 |
+
+## 4. 常见的 AI 本地过滤场景 (粗筛+细筛)
+
+IBKR API 本身不支持诸如“只看科技股”或者“只看 RSI超卖”的服务器端筛选。
+当你需要处理复杂的综合请求时，请执行两步法：
+1. **API 粗筛**：使用你能找到的最接近的 `--code` 和 `--cap / --price` 拿回基础列表（务必加上 `--json`）。
+2. **AI 细筛**：遍历这些标的，调用 `./ibkr fundamentals` 或 `./ibkr analyze` 过滤出版块/技术面符合要求的股票，然后向用户汇报。

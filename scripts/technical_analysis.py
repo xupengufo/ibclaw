@@ -6,6 +6,8 @@
 """
 
 import math
+import json
+import dataclasses
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
 
@@ -615,6 +617,42 @@ def format_portfolio_technical(summaries: List[TechnicalSummary]) -> str:
     lines.append(f"  📌 组合平均评分: {avg_score:+.1f}  |  看多 {bullish} / 中性 {neutral} / 看空 {bearish}")
 
     return "\n".join(lines)
+
+
+def to_json_summary(ts: TechnicalSummary) -> str:
+    """输出纯净的 JSON 数据格式，供 AI 分析使用（剔除主观判定文本）"""
+    data = dataclasses.asdict(ts)
+    
+    # 剔除或简化一些强主观的预测性字段（在 JSON 模式下，这些推导应由 AI 完成）
+    data.pop('overall_signal', None)
+    data.pop('key_observations', None)
+    data.pop('score', None)
+    data['ma'].pop('trend', None)
+    data['rsi'].pop('signal', None)
+    data['macd'].pop('cross_signal', None)
+    data['bollinger'].pop('position', None)
+    data['volume'].pop('volume_trend', None)
+    
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def format_portfolio_json(summaries: List[TechnicalSummary]) -> str:
+    """输出 JSON 格式的组合概览"""
+    data = []
+    for ts in summaries:
+        item = dataclasses.asdict(ts)
+        # 精简 JSON
+        item.pop('overall_signal', None)
+        item.pop('key_observations', None)
+        item.pop('score', None)
+        item['ma'].pop('trend', None)
+        item['rsi'].pop('signal', None)
+        item['macd'].pop('cross_signal', None)
+        item['bollinger'].pop('position', None)
+        item['volume'].pop('volume_trend', None)
+        data.append(item)
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
 
 
 # ─── 独立运行入口 ─────────────────────────────────────────────

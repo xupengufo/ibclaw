@@ -118,11 +118,12 @@ def cmd_quote(args):
 def cmd_analyze(args):
     """技术分析"""
     if not args:
-        print("用法: python ibkr_cli.py analyze SYMBOL [SYMBOL2 ...] [--period '1 Y'] [--bar '1 day']")
+        print("用法: python ibkr_cli.py analyze SYMBOL [SYMBOL2 ...] [--period '1 Y'] [--bar '1 day'] [--json]")
         sys.exit(1)
 
     period = "1 Y"
     bar_size = "1 day"
+    json_output = False
     symbols = []
     i = 0
     while i < len(args):
@@ -132,6 +133,9 @@ def cmd_analyze(args):
         elif args[i] == "--bar" and i + 1 < len(args):
             bar_size = args[i + 1]
             i += 2
+        elif args[i] == "--json":
+            json_output = True
+            i += 1
         else:
             symbols.append(args[i].upper())
             i += 1
@@ -141,16 +145,25 @@ def cmd_analyze(args):
         sys.exit(1)
 
     client = _connect_client()
-    from technical_analysis import analyze_symbol, format_technical_summary
+    from technical_analysis import analyze_symbol, format_technical_summary, to_json_summary
 
     for symbol in symbols:
-        print(f"⏳ 正在分析 {symbol}...")
+        if not json_output:
+            print(f"⏳ 正在分析 {symbol}...")
         result = analyze_symbol(client, symbol, period=period, bar_size=bar_size)
         if result:
-            print(format_technical_summary(result))
+            if json_output:
+                print(to_json_summary(result))
+            else:
+                print(format_technical_summary(result))
         else:
-            print(f"⚠️ {symbol} 技术分析失败: 历史数据不足（至少需要 30 根 K 线）或股票代码无效")
-        print()
+            if json_output:
+                import json
+                print(json.dumps({"error": f"{symbol} 技术分析失败: 历史数据不足或股票代码无效"}))
+            else:
+                print(f"⚠️ {symbol} 技术分析失败: 历史数据不足（至少需要 30 根 K 线）或股票代码无效")
+        if not json_output:
+            print()
 
     _safe_disconnect(client)
 
@@ -340,24 +353,83 @@ def cmd_scanner(args):
     """市场扫描"""
     from scanner_enhanced import (
         run_enhanced_scanner, list_scan_presets,
-        format_scan_results
+        format_scan_results, to_json_scan_results
     )
 
     if not args or args[0] == "list":
-        print("📋 可用扫描预设:")
+        print("📋 可用扫描预设 (也可直接使用 --code 指定原生 API scanCode):")
         for name, desc in list_scan_presets().items():
             print(f"  • {name}: {desc}")
         if not args:
             return
         return
 
-    preset_name = args[0]
-    size = int(args[1]) if len(args) > 1 else 10
+    preset_name = None
+    scan_code = None
+    size = 10
+    above_price = None
+    below_price = None
+    above_volume = None
+    market_cap_above = None
+    market_cap_below = None
+    json_output = False
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--code" and i + 1 < len(args):
+            scan_code = args[i + 1]
+            i += 2
+        elif args[i] == "--size" and i + 1 < len(args):
+            size = int(args[i + 1])
+            i += 2
+        elif args[i] == "--price-above" and i + 1 < len(args):
+            above_price = float(args[i + 1])
+            i += 2
+        elif args[i] == "--price-below" and i + 1 < len(args):
+            below_price = float(args[i + 1])
+            i += 2
+        elif args[i] == "--cap-above" and i + 1 < len(args):
+            market_cap_above = float(args[i + 1])
+            i += 2
+        elif args[i] == "--cap-below" and i + 1 < len(args):
+            market_cap_below = float(args[i + 1])
+            i += 2
+        elif args[i] == "--vol-above" and i + 1 < len(args):
+            above_volume = int(args[i + 1])
+            i += 2
+        elif args[i] == "--json":
+            json_output = True
+            i += 1
+        else:
+            if not args[i].startswith("--") and preset_name is None and scan_code is None:
+                preset_name = args[i]
+            elif args[i].isdigit() and preset_name is not None:
+                size = int(args[i])
+            i += 1
 
     client = _connect_client()
-    print(f"⏳ 正在扫描 [{preset_name}] (top {size})...")
-    results = run_enhanced_scanner(client, preset_name, size)
-    print(format_scan_results(results, preset_name))
+    
+    scan_target = scan_code if scan_code else (preset_name if preset_name else "自定义条件")
+    if not json_output:
+        print(f"⏳ 正在扫描 [{scan_target}] (top {size})...")
+        
+    results = run_enhanced_scanner(
+        client, 
+        preset_name=preset_name,
+        scan_code=scan_code,
+        size=size,
+        above_price=above_price,
+        below_price=below_price,
+        above_volume=above_volume,
+        market_cap_above=market_cap_above,
+        market_cap_below=market_cap_below
+    )
+    
+    if json_output:
+        print(to_json_scan_results(results))
+    else:
+        print(format_scan_results(results, scan_target))
+        
     _safe_disconnect(client)
 
 
