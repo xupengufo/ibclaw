@@ -65,7 +65,8 @@ copy_runtime_scripts() {
   cp "$REPO_ROOT/scripts/scanner_enhanced.py" "$TRADING_DIR/scanner_enhanced.py"
   cp "$REPO_ROOT/scripts/export.py" "$TRADING_DIR/export.py"
   cp "$REPO_ROOT/scripts/technical_analysis.py" "$TRADING_DIR/technical_analysis.py"
-  chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py"
+  cp "$REPO_ROOT/scripts/ibkr_cli.py" "$TRADING_DIR/ibkr_cli.py"
+  chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py" "$TRADING_DIR/ibkr_cli.py"
 }
 
 create_env_if_missing() {
@@ -126,8 +127,18 @@ source venv/bin/activate
 python export.py
 EOF
 
+  # 统一 CLI 入口（Agent 推荐使用）
+  cat > "$TRADING_DIR/ibkr" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+source venv/bin/activate
+python ibkr_cli.py "$@"
+EOF
+
   chmod +x "$TRADING_DIR/run-readonly.sh" "$TRADING_DIR/run-keepalive.sh" \
-           "$TRADING_DIR/run-alerts.sh" "$TRADING_DIR/run-report.sh"
+           "$TRADING_DIR/run-alerts.sh" "$TRADING_DIR/run-report.sh" \
+           "$TRADING_DIR/ibkr"
 }
 
 main() {

@@ -269,7 +269,7 @@ class IBKRReadOnlyClient:
                 change_pct=round(change_pct, 2)
             )
         except Exception as e:
-            print(f"❌ 获取行情失败: {e}")
+            print(f"❌ {symbol} 获取行情失败: {type(e).__name__}: {e}")
             return None
 
     def get_fundamentals(self, symbol: str) -> Optional[FundamentalData]:
@@ -332,9 +332,12 @@ class IBKRReadOnlyClient:
                         low_52w = value
                     elif field_name == 'APTS10DAVG' or field_name == 'VOL10DAVG':
                         avg_volume = value
-        except Exception:
-            # fundamentalData 可能不可用（需要额外订阅）
-            pass
+            else:
+                print(f"ℹ️ {symbol}: 基本面 XML 数据不可用（可能需要 Reuters/Refinitiv 数据订阅）")
+        except ET.ParseError as e:
+            print(f"⚠️ {symbol}: 基本面 XML 解析失败 ({e})，将使用 ticker 数据补充")
+        except Exception as e:
+            print(f"ℹ️ {symbol}: 基本面数据请求失败 ({type(e).__name__}: {e})，将使用 ticker 数据补充")
 
         # 如果 fundamental data 不可用，用 ticker 数据补充
         try:

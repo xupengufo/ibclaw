@@ -490,18 +490,30 @@ def analyze_symbol(client, symbol: str, period: str = "1 Y", bar_size: str = "1 
 
 
 def analyze_portfolio(client) -> List[TechnicalSummary]:
-    """对所有股票持仓执行技术分析"""
+    """对所有股票持仓执行技术分析，返回成功的分析结果列表"""
     positions = client.get_positions()
     stock_positions = [p for p in positions if p.sec_type == "STK"]
 
+    if not stock_positions:
+        print("ℹ️ 无股票持仓，跳过组合技术分析")
+        return []
+
     results = []
+    failed = []
     for p in stock_positions:
         try:
             summary = analyze_symbol(client, p.symbol, "1 Y", "1 day")
             if summary:
                 results.append(summary)
+            else:
+                failed.append((p.symbol, "历史数据不足（至少需要 30 根 K 线）"))
         except Exception as e:
-            print(f"⚠️ {p.symbol} 技术分析失败: {e}")
+            failed.append((p.symbol, f"{type(e).__name__}: {e}"))
+
+    if failed:
+        print(f"⚠️ {len(failed)}/{len(stock_positions)} 只股票技术分析失败:")
+        for symbol, reason in failed:
+            print(f"   • {symbol}: {reason}")
 
     results.sort(key=lambda x: x.score, reverse=True)
     return results

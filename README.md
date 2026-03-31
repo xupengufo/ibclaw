@@ -255,6 +255,7 @@ ibkr-trader/
 ├── README.md                 # 本文档
 ├── scripts/
 │   ├── setup.sh              # 安装脚本（Debian/macOS）
+│   ├── ibkr_cli.py           # 统一 CLI 入口（Agent 推荐使用）
 │   ├── ibkr_readonly.py      # 核心只读查询客户端
 │   ├── keepalive.py          # 健康检查脚本
 │   ├── portfolio_analytics.py # 组合分析 + 绩效追踪
@@ -265,7 +266,9 @@ ibkr-trader/
 │   ├── technical_analysis.py # 技术分析 (SMA/RSI/MACD/布林带)
 │   └── export.py             # 数据导出 (CSV/报告)
 └── references/
-    └── ...                   # 参考文档
+    ├── api-endpoints.md      # ib_insync API 参考
+    ├── scanner-types.md      # 扫描策略参考
+    └── troubleshooting.md    # 故障排查指南
 ```
 
 **部署后在 `~/trading/` 目录下的文件：**
@@ -273,6 +276,8 @@ ibkr-trader/
 ```
 ~/trading/
 ├── .env                      # IB Gateway 配置（端口、IP、告警阈值）
+├── ibkr                      # ⭐ 统一 CLI 入口（./ibkr quote AAPL）
+├── ibkr_cli.py               # CLI 调度器
 ├── ibkr_readonly.py          # 核心查询脚本
 ├── keepalive.py              # 健康检查脚本
 ├── portfolio_analytics.py    # 组合分析模块
@@ -280,6 +285,7 @@ ibkr-trader/
 ├── trade_review.py          # 交易复盘模块
 ├── alerts.py                # 主动告警模块
 ├── scanner_enhanced.py      # 增强扫描器 + Watchlist
+├── technical_analysis.py    # 技术分析模块
 ├── export.py                # 数据导出模块
 ├── venv/                    # Python 虚拟环境
 ├── run-readonly.sh          # 一键运行主查询脚本

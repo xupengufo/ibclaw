@@ -1,131 +1,126 @@
-# IBKR Client Portal API (Read-Only Reference)
+# ib_insync API 参考（只读操作）
 
-> This file is intentionally limited to read-only endpoints.
->
-> Trading endpoints (place/modify/cancel orders) are deliberately omitted to align with this repository's safety boundary.
+> 此文档仅包含本项目使用的只读 API。下单/修改/取消订单的 API 被刻意排除。
 
-## Scope
+## 连接管理
 
-- Primary architecture in this repo is **IB Gateway + ib_insync** (socket API).
-- This document is only a **legacy HTTP reference** for account/market data reading.
-- Base URL: `https://localhost:5000`
+```python
+from ib_insync import *
 
-## Authentication
+ib = IB()
+ib.connect(host='127.0.0.1', port=4001, clientId=1, readonly=True)
+ib.disconnect()
+ib.isConnected()  # -> bool
 
-### Check Status
-```
-GET /v1/api/iserver/auth/status
-```
+# 延迟行情（免费，无需订阅）
+ib.reqMarketDataType(3)  # 3 = 延迟, 1 = 实时
 
-### Keepalive (Tickle)
-```
-POST /v1/api/tickle
-```
-Call every 5 minutes if you are still using Client Portal session mode.
-
-### Logout
-```
-POST /v1/api/logout
+# 断线重连
+ib.disconnectedEvent += callback_function
 ```
 
-## Portfolio
+## 账户数据
 
-### List Accounts
-```
-GET /v1/api/portfolio/accounts
-```
+```python
+# 账户列表
+accounts = ib.managedAccounts()  # -> ['U1234567']
 
-### Account Summary
-```
-GET /v1/api/portfolio/{accountId}/summary
-```
-Key fields:
-- `totalcashvalue.amount` - Available cash
-- `netliquidation.amount` - Total account value
-- `unrealizedpnl.amount` - Unrealized P&L
+# 账户摘要
+summary = ib.accountSummary()  # -> [AccountValue(tag, value, currency, account)]
+# 常用 tag: TotalCashValue, NetLiquidation, BuyingPower, UnrealizedPnL
 
-### Account Ledger
-```
-GET /v1/api/portfolio/{accountId}/ledger
+# 持仓 (含服务端计算的市值/盈亏，无需行情订阅)
+portfolio = ib.portfolio()  # -> [PortfolioItem]
+# PortfolioItem 字段: contract, position, marketPrice, marketValue, averageCost,
+#                      unrealizedPNL, realizedPNL, account
 ```
 
-## Positions
+## 合约查询
 
-### Get Positions
-```
-GET /v1/api/portfolio/{accountId}/positions/{pageId}
-```
-`pageId` starts at 0 and returns paginated position lists.
+```python
+# 股票
+contract = Stock('AAPL', 'SMART', 'USD')
+qualified = ib.qualifyContracts(contract)  # -> [Contract]
 
-### Position by Conid
-```
-GET /v1/api/portfolio/{accountId}/position/{conid}
-```
-
-## Market Data
-
-### Symbol Search
-```
-GET /v1/api/iserver/secdef/search?symbol={symbol}
+# 期权
+contract = Option('AAPL', '20260320', 180, 'C', 'SMART')
+qualified = ib.qualifyContracts(contract)
 ```
 
-### Contract Details
-```
-GET /v1/api/iserver/contract/{conid}/info
-```
+## 行情数据
 
-### Market Data Snapshot
-```
-GET /v1/api/iserver/marketdata/snapshot?conids={conid}&fields={fields}
-```
+```python
+# 快照行情
+tickers = ib.reqTickers(contract)  # -> [Ticker]
+# Ticker 字段: last, bid, ask, volume, close, high, low
 
-Common fields:
-- `31` last price
-- `84` bid
-- `86` ask
-- `87` volume
-- `88` previous close
-- `7295` open
-- `7296` high
-- `7297` low
-- `7762` change %
-
-Example:
-```bash
-curl -sk "https://localhost:5000/v1/api/iserver/marketdata/snapshot?conids=265598&fields=31,84,86,87"
+# 期权 Greeks (需要 genericTickList='106')
+ticker = ib.reqMktData(contract, genericTickList='106', snapshot=False)
+ib.sleep(2)  # 等待数据
+# ticker.modelGreeks -> OptionComputation(delta, gamma, theta, vega, impliedVol, ...)
+ib.cancelMktData(contract)
 ```
 
-### Historical Data
-```
-GET /v1/api/iserver/marketdata/history?conid={conid}&period={period}&bar={bar}
-```
+## 历史数据
 
-Periods: `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `5y`  
-Bars: `1min`, `5min`, `1h`, `1d`, `1w`, `1m`
-
-## Scanner
-
-### Get Scanner Parameters
-```
-GET /v1/api/iserver/scanner/params
-```
-
-### Run Scanner
-```
-POST /v1/api/iserver/scanner/run
-Content-Type: application/json
-
-{
-  "instrument": "STK",
-  "type": "TOP_PERC_GAIN",
-  "location": "STK.US.MAJOR",
-  "size": "25"
-}
+```python
+bars = ib.reqHistoricalData(
+    contract,
+    endDateTime='',           # '' = 当前时间
+    durationStr='3 M',        # '1 D', '1 W', '1 M', '3 M', '6 M', '1 Y', '5 Y'
+    barSizeSetting='1 day',   # '1 min', '5 mins', '1 hour', '1 day', '1 week', '1 month'
+    whatToShow='TRADES',      # 'TRADES', 'MIDPOINT', 'BID', 'ASK'
+    useRTH=True               # True = 仅正常交易时段
+)
+# bars -> [BarData(date, open, high, low, close, volume)]
 ```
 
-## Explicitly Out of Scope
+## 基本面数据
 
-- Place order
-- Modify order
-- Cancel order
-- Any endpoint that can change account state
+```python
+# 需要额外数据订阅，否则可能返回空
+xml_data = ib.reqFundamentalData(contract, 'ReportSnapshot')
+# 返回 XML 字符串，需要解析
+# 常用 Ratio FieldName:
+#   MKTCAP       - 市值
+#   PEEXCLXOR    - P/E 市盈率
+#   TTMEPSXCLX   - EPS
+#   YIELD        - 股息收益率
+#   NHIG / NLOW  - 52周最高/最低
+```
+
+## 市场扫描
+
+```python
+sub = ScannerSubscription(
+    instrument='STK',
+    locationCode='STK.US.MAJOR',
+    scanCode='TOP_PERC_GAIN',     # 详见 references/scanner-types.md
+    numberOfRows=10
+)
+tag_values = [TagValue('marketCapAbove', '100000000')]  # 过滤市值 > 1亿
+results = ib.reqScannerData(sub, scannerSubscriptionFilterOptions=tag_values)
+# results -> [ScanData(rank, contractDetails, distance, benchmark, projection)]
+```
+
+## 成交记录
+
+```python
+# 近期成交（通常仅当天/近 7 天）
+fills = ib.fills()  # -> [Fill(contract, execution, commissionReport, time)]
+# execution -> Execution(side, shares, avgPrice, time, ...)
+# commissionReport -> CommissionReport(commission, realizedPNL, ...)
+
+# 按条件过滤
+filt = ExecutionFilter(clientId=1)
+trades = ib.reqExecutions(filt)
+```
+
+## 明确排除的 API
+
+以下 API **不**在本项目的使用范围内：
+
+- `ib.placeOrder()` — 下单
+- `ib.cancelOrder()` — 取消订单
+- `ib.reqGlobalCancel()` — 全局取消
+- 任何修改账户状态的操作
