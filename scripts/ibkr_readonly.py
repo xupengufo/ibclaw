@@ -43,8 +43,13 @@ load_local_env()
 # Configuration
 IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
 IB_PORT = int(os.getenv("IB_PORT", "4001"))
-# 默认使用随机 clientId，避免 AI 并发获取多重数据时发生 Socket 争抢 (Error 326)
-IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", str(random.randint(1000, 9999))))
+
+# 强制避免并发冲突：若环境中没有指定 ID 或指定了默认的 1，则强制随机
+_env_cid = os.getenv("IB_CLIENT_ID")
+if not _env_cid or _env_cid == "1":
+    IB_CLIENT_ID = random.randint(1000, 9999)
+else:
+    IB_CLIENT_ID = int(_env_cid)
 
 
 @dataclass
