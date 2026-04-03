@@ -8,14 +8,18 @@ IBKR CLI 统一入口
     python ibkr_cli.py quote AAPL
     python ibkr_cli.py analyze AAPL
     python ibkr_cli.py fundamentals AAPL
+    python ibkr_cli.py ratings AAPL
+    python ibkr_cli.py insider AAPL
+    python ibkr_cli.py peers AAPL
+    python ibkr_cli.py screen --sector Technology --pe "Under 20" --json
     python ibkr_cli.py portfolio [allocation|concentration|beta|benchmark|attribution|drawdown|all]
     python ibkr_cli.py options [calendar|greeks|summary|all]
     python ibkr_cli.py trades [history|stats|all]
-    python ibkr_cli.py scanner 涨幅榜 [size]
+    python ibkr_cli.py scanner --code TOP_PERC_GAIN [--size 10]
     python ibkr_cli.py watchlist [list|add|remove] [SYMBOL] [--buy PRICE] [--sell PRICE] [--notes TEXT]
     python ibkr_cli.py news AAPL
     python ibkr_cli.py export [portfolio|allocation|report|all]
-    python ibkr_cli.py status          # 检查 IB Gateway 连接状态
+    python ibkr_cli.py status
 
 ⚠️ 安全模式：此脚本不包含任何下单、修改订单、取消订单的功能。
 """
@@ -97,7 +101,7 @@ def cmd_status(args):
 def cmd_quote(args):
     """查询实时行情"""
     json_output = "--json" in args
-    symbols = [a for a in args if a != "--json"]
+    symbols = [a.upper() for a in args if a != "--json"]
 
     client = _connect_client()
     from ibkr_readonly import format_currency
@@ -115,10 +119,12 @@ def cmd_quote(args):
             _safe_disconnect(client)
             sys.exit(1)
 
-    json_results = {}
+    # 批量获取行情
+    quotes_map = client.get_quotes_batch(symbols)
 
+    json_results = {}
     for symbol in symbols:
-        quote = client.get_quote(symbol.upper())
+        quote = quotes_map.get(symbol)
         if json_output:
             if quote:
                 import dataclasses
@@ -194,7 +200,7 @@ def cmd_analyze(args):
 
 
 def cmd_fundamentals(args):
-    """基本面查询"""
+    """基本面查询（IBKR + Finviz 双源合并）"""
     if not args or (len(args) == 1 and args[0] in ("-h", "--help")):
         print("用法: python ibkr_cli.py fundamentals SYMBOL [SYMBOL2 ...] [--json]")
         sys.exit(1)
@@ -203,20 +209,31 @@ def cmd_fundamentals(args):
     symbols = [a for a in args if a != "--json"]
 
     client = _connect_client()
+    from finviz_data import get_finviz_fundamentals, format_finviz_fundamentals
+
     json_results = {}
 
     for symbol in symbols:
         symbol = symbol.upper()
+
+        # IBKR 基本面
         fund = client.get_fundamentals(symbol)
+        # Finviz 基本面（补充）
+        finviz_fund = get_finviz_fundamentals(symbol)
+
         if json_output:
+            result = {}
             if fund:
                 import dataclasses
-                json_results[symbol] = dataclasses.asdict(fund)
-            else:
-                json_results[symbol] = {"error": "未找到基本面数据"}
+                result["ibkr"] = dataclasses.asdict(fund)
+            if finviz_fund:
+                result["finviz"] = finviz_fund
+            if not result:
+                result = {"error": "未找到基本面数据"}
+            json_results[symbol] = result
         else:
             if fund:
-                print(f"📊 {symbol} 基本面数据")
+                print(f"📊 {symbol} 基本面数据 (来源: IBKR)")
                 print("=" * 50)
                 print(f"  公司: {fund.company_name}")
                 print(f"  行业: {fund.industry} / {fund.category}")
@@ -229,8 +246,12 @@ def cmd_fundamentals(args):
                 print(f"  52周最高: {fund.high_52w}")
                 print(f"  52周最低: {fund.low_52w}")
                 print(f"  10日均量: {fund.avg_volume}")
-            else:
-                print(f"⚠️ {symbol}: 未找到基本面数据（股票代码可能无效，或需要额外数据订阅）")
+                print()
+
+            if finviz_fund:
+                print(format_finviz_fundamentals(finviz_fund, symbol))
+            elif not fund:
+                print(f"⚠️ {symbol}: IBKR 和 Finviz 均未找到基本面数据")
             print()
 
     if json_output:
@@ -572,27 +593,74 @@ def cmd_watchlist(args):
 
 
 def cmd_news(args):
-    """查询公司新闻"""
+    """查询公司新闻（Yahoo RSS + Finviz 双源合并）"""
+    from finviz_data import get_finviz_news, get_finviz_market_news, format_news
+
     if not args:
         print("用法: python ibkr_cli.py news SYMBOL [limit]")
+        print("       python ibkr_cli.py news market")
         sys.exit(1)
 
+    # 全市场新闻
+    if args[0].lower() == "market":
+        market_news = get_finviz_market_news()
+        print(format_news(market_news.get("news", []), "全市场新闻", limit=20))
+        print()
+        print(format_news(market_news.get("blogs", []), "财经博客", limit=10))
+        return
+
     symbol = args[0].upper()
-    limit = int(args[1]) if len(args) > 1 else 5
+    limit = int(args[1]) if len(args) > 1 and args[1].isdigit() else 10
 
-    client = _connect_client()
-    news = client.get_company_news(symbol, limit=limit)
-    if news:
-        print(f"📰 {symbol} 最新新闻 (Yahoo Finance):")
-        print("=" * 60)
-        for idx, item in enumerate(news, 1):
-            print(f"  {idx}. [{item['date']}] {item['title']}")
-            if item['link']:
-                print(f"     🔗 {item['link']}")
+    # 双源获取
+    all_news = []
+
+    # 源1: Yahoo RSS（需要 IB Gateway 连接）
+    try:
+        client = _connect_client()
+        yahoo_news = client.get_company_news(symbol, limit=limit)
+        _safe_disconnect(client)
+        for item in yahoo_news:
+            all_news.append({
+                "Date": item.get("date", ""),
+                "Title": item.get("title", ""),
+                "Link": item.get("link", ""),
+                "Source": "Yahoo Finance",
+            })
+    except Exception:
+        pass
+
+    # 源2: Finviz
+    finviz_news = get_finviz_news(symbol)
+    for item in finviz_news:
+        all_news.append({
+            "Date": item.get("Date", ""),
+            "Title": item.get("Title", ""),
+            "Link": item.get("Link", ""),
+            "Source": item.get("Source", "Finviz"),
+        })
+
+    # 按标题去重
+    seen_titles = set()
+    unique_news = []
+    for item in all_news:
+        title = item.get("Title", "").strip()
+        if title and title not in seen_titles:
+            seen_titles.add(title)
+            unique_news.append(item)
+
+    if unique_news:
+        print(f"📰 {symbol} 最新新闻 (Yahoo + Finviz, 共 {len(unique_news)} 条):")
+        print("=" * 65)
+        for idx, item in enumerate(unique_news[:limit], 1):
+            source_tag = f"[{item.get('Source', '')}]" if item.get('Source') else ""
+            print(f"  {idx:2d}. [{item['Date']}] {item['Title']}")
+            if source_tag:
+                print(f"      来源: {source_tag}")
+            if item.get('Link'):
+                print(f"      🔗 {item['Link']}")
     else:
-        print(f"⚠️ {symbol}: 未获取到新闻（Yahoo Finance RSS 可能暂时不可用）")
-
-    _safe_disconnect(client)
+        print(f"⚠️ {symbol}: Yahoo 和 Finviz 均未获取到新闻")
 
 
 def cmd_export(args):
@@ -658,20 +726,195 @@ def cmd_history(args):
     _safe_disconnect(client)
 
 
+# ─── Finviz 数据命令 ───────────────────────────────────────────
+
+def cmd_ratings(args):
+    """分析师评级（Finviz）"""
+    from finviz_data import get_finviz_ratings, format_ratings
+
+    if not args:
+        print("用法: python ibkr_cli.py ratings SYMBOL [--json]")
+        sys.exit(1)
+
+    json_output = "--json" in args
+    symbols = [a.upper() for a in args if a != "--json"]
+
+    json_results = {}
+    for symbol in symbols:
+        ratings = get_finviz_ratings(symbol)
+        if json_output:
+            json_results[symbol] = ratings if ratings else {"error": "无评级数据"}
+        else:
+            print(format_ratings(ratings, symbol))
+            print()
+
+    if json_output:
+        import json
+        print(json.dumps(json_results, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_insider(args):
+    """内部人交易（Finviz）"""
+    from finviz_data import (
+        get_finviz_insider, get_finviz_insider_market, format_insider
+    )
+
+    if not args:
+        print("用法: python ibkr_cli.py insider SYMBOL [--json]")
+        print("       python ibkr_cli.py insider market [latest|top week|top owner trade]")
+        sys.exit(1)
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    if clean_args[0].lower() == "market":
+        option = " ".join(clean_args[1:]) if len(clean_args) > 1 else "latest"
+        records = get_finviz_insider_market(option)
+        if json_output:
+            import json
+            print(json.dumps(records, ensure_ascii=False, indent=2, default=str))
+        else:
+            print(format_insider(records, f"全市场内部人交易 ({option})"))
+        return
+
+    json_results = {}
+    for symbol in clean_args:
+        symbol = symbol.upper()
+        records = get_finviz_insider(symbol)
+        if json_output:
+            json_results[symbol] = records if records else {"error": "无内部人交易数据"}
+        else:
+            print(format_insider(records, f"{symbol} 内部人交易"))
+            print()
+
+    if json_output:
+        import json
+        print(json.dumps(json_results, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_peers(args):
+    """同行公司（Finviz），可选批量行情对比"""
+    from finviz_data import get_finviz_peers, format_peers
+
+    if not args:
+        print("用法: python ibkr_cli.py peers SYMBOL [--json] [--quote]")
+        sys.exit(1)
+
+    json_output = "--json" in args
+    with_quote = "--quote" in args
+    symbol = [a for a in args if not a.startswith("--")][0].upper()
+
+    peers = get_finviz_peers(symbol)
+
+    if json_output:
+        import json
+        result = {"symbol": symbol, "peers": peers}
+
+        # 附加行情
+        if with_quote and peers:
+            try:
+                client = _connect_client()
+                quotes = client.get_quotes_batch(peers[:10])
+                import dataclasses
+                result["peer_quotes"] = {
+                    k: dataclasses.asdict(v) for k, v in quotes.items()
+                }
+                _safe_disconnect(client)
+            except Exception:
+                pass
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(format_peers(peers, symbol))
+
+        # 附加行情对比
+        if with_quote and peers:
+            try:
+                client = _connect_client()
+                quotes = client.get_quotes_batch(peers[:10])
+                if quotes:
+                    print(f"\n📈 同行实时行情:")
+                    for sym, q in quotes.items():
+                        emoji = "📈" if q.change_pct > 0 else "📉" if q.change_pct < 0 else "➖"
+                        print(f"  {emoji} {sym:8s} ${q.last_price:.2f} ({q.change_pct:+.2f}%)")
+                _safe_disconnect(client)
+            except Exception:
+                pass
+
+
+def cmd_screen(args):
+    """Finviz 多维条件选股"""
+    from finviz_screener import (
+        parse_screen_args, run_finviz_screen,
+        format_screen_results, to_json_screen_results,
+        list_available_filters, list_available_signals,
+        _get_filter_options,
+    )
+
+    if not args or args[0] in ("-h", "--help"):
+        print("用法: python ibkr_cli.py screen [OPTIONS]")
+        print("\n可用过滤参数:")
+        for cli_key, finviz_key in list_available_filters().items():
+            print(f"  {cli_key:18s} → {finviz_key}")
+        print("\n其他参数:")
+        print("  --signal NAME    交易信号 (如 Top Gainers, Oversold)")
+        print("  --size N         最大返回数量 (默认 20)")
+        print("  --json           JSON 输出")
+        print("\n示例:")
+        print('  ./ibkr screen --sector Technology --pe "Under 20" --json')
+        print('  ./ibkr screen --signal Oversold --size 10')
+        print('  ./ibkr screen list  # 列出可用信号')
+        return
+
+    if args[0] == "list":
+        print("📋 可用交易信号:")
+        for s in list_available_signals():
+            print(f"  • {s}")
+        print("\n📋 可用过滤参数 (每个参数用 --help 查看可选值):")
+        for cli_key, finviz_key in list_available_filters().items():
+            options = _get_filter_options(finviz_key)
+            preview = ", ".join(options[:5]) + ("..." if len(options) > 5 else "")
+            print(f"  {cli_key:18s} {finviz_key:22s} [{preview}]")
+        return
+
+    filters, signal, limit, json_output = parse_screen_args(args)
+    if filters is None:  # list 命令已处理
+        return
+
+    if not json_output:
+        filter_desc = ", ".join(f"{k}={v}" for k, v in (filters or {}).items())
+        if signal:
+            filter_desc += f", Signal={signal}"
+        print(f"⏳ Finviz 选股中 ({filter_desc or '默认'}, top {limit})...")
+
+    results = run_finviz_screen(
+        filters=filters, signal=signal, limit=limit
+    )
+
+    if json_output:
+        print(to_json_screen_results(results))
+    else:
+        print(format_screen_results(results, filters, signal))
+
+
 # ─── 主入口 ────────────────────────────────────────────────────
 
 COMMANDS = {
     "status": ("检查 IB Gateway 连接状态", cmd_status),
     "quote": ("查询实时行情: quote AAPL NVDA", cmd_quote),
     "analyze": ("技术分析: analyze AAPL", cmd_analyze),
-    "fundamentals": ("基本面查询: fundamentals AAPL", cmd_fundamentals),
+    "fundamentals": ("基本面查询(IBKR+Finviz): fundamentals AAPL", cmd_fundamentals),
+    "ratings": ("分析师评级(Finviz): ratings AAPL", cmd_ratings),
+    "insider": ("内部人交易(Finviz): insider AAPL / insider market", cmd_insider),
+    "peers": ("同行公司(Finviz): peers AAPL [--quote]", cmd_peers),
+    "screen": ("Finviz多维选股: screen --sector Technology --pe 'Under 20'", cmd_screen),
     "history": ("历史 K 线: history AAPL --period '3 M'", cmd_history),
-    "portfolio": ("组合分析: portfolio [all|allocation|concentration|beta|benchmark|attribution|drawdown|correlation]", cmd_portfolio),
+    "portfolio": ("组合分析: portfolio [all|allocation|...]", cmd_portfolio),
     "options": ("期权分析: options [all|calendar|greeks|summary]", cmd_options),
     "trades": ("交易复盘: trades [all|history|stats]", cmd_trades),
-    "scanner": ("市场扫描: scanner 涨幅榜 [10]", cmd_scanner),
+    "scanner": ("IBKR市场扫描: scanner --code TOP_PERC_GAIN", cmd_scanner),
     "watchlist": ("Watchlist: watchlist [list|add|remove] SYMBOL", cmd_watchlist),
-    "news": ("公司新闻: news AAPL", cmd_news),
+    "news": ("公司新闻(Yahoo+Finviz): news AAPL / news market", cmd_news),
     "export": ("数据导出: export [all|portfolio|allocation|report]", cmd_export),
 }
 

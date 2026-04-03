@@ -193,6 +193,14 @@ def run_enhanced_scanner(
             'scanCode': code,
             'numberOfRows': size
         }
+        # 默认过滤：用户未指定时，排除微盘股和仙股（IBKR API 对无过滤的请求容易报错）
+        if above_price is None and 'abovePrice' not in sub_kwargs:
+            sub_kwargs['abovePrice'] = 1.0
+        if market_cap_above is None and not any(
+            tv.tag == 'marketCapAbove' for tv in tag_values
+        ):
+            sub_kwargs['marketCapAbove'] = 100000000  # 1亿美元
+
         if above_price is not None: sub_kwargs['abovePrice'] = above_price
         if below_price is not None: sub_kwargs['belowPrice'] = below_price
         if above_volume is not None: sub_kwargs['aboveVolume'] = above_volume
@@ -213,24 +221,23 @@ def run_enhanced_scanner(
     except Exception:
         held_symbols = {}
 
-    # 构建结果 + 附带行情
+    # 批量获取行情（一次请求，替代逐个 get_quote）
+    scan_symbols = [r.contractDetails.contract.symbol for r in results]
+    try:
+        quotes_map = client.get_quotes_batch(scan_symbols)
+    except Exception:
+        quotes_map = {}
+
+    # 构建结果
     scan_results = []
     for r in results:
         symbol = r.contractDetails.contract.symbol
         conid = r.contractDetails.contract.conId
 
-        # 获取行情
-        last_price = 0.0
-        change_pct = 0.0
-        volume = 0
-        try:
-            quote = client.get_quote(symbol)
-            if quote:
-                last_price = quote.last_price
-                change_pct = quote.change_pct
-                volume = quote.volume
-        except Exception:
-            pass
+        quote = quotes_map.get(symbol)
+        last_price = quote.last_price if quote else 0.0
+        change_pct = quote.change_pct if quote else 0.0
+        volume = quote.volume if quote else 0
 
         is_held = symbol in held_symbols
         held_qty = held_symbols.get(symbol, 0.0)
@@ -330,6 +337,13 @@ def get_watchlist_quotes(client) -> List[WatchlistItem]:
     except Exception:
         held_symbols = {}
 
+    # 批量获取行情
+    all_symbols = [item["symbol"] for item in wl["items"]]
+    try:
+        quotes_map = client.get_quotes_batch(all_symbols)
+    except Exception:
+        quotes_map = {}
+
     results = []
     for item in wl["items"]:
         symbol = item["symbol"]
@@ -342,13 +356,10 @@ def get_watchlist_quotes(client) -> List[WatchlistItem]:
             is_held=symbol in held_symbols
         )
 
-        try:
-            quote = client.get_quote(symbol)
-            if quote:
-                wl_item.last_price = quote.last_price
-                wl_item.change_pct = quote.change_pct
-        except Exception:
-            pass
+        quote = quotes_map.get(symbol)
+        if quote:
+            wl_item.last_price = quote.last_price
+            wl_item.change_pct = quote.change_pct
 
         results.append(wl_item)
 

@@ -1,6 +1,6 @@
 # 市场扫描策略参考 (Dynamic Scanner API)
 
-本文档旨在为 AI Agent 提供调用 `./ibkr scanner` 时的参数组合指引。原有的中文“预设”虽被保留以供快捷查询，但**强烈建议 AI Agent 直接使用 `--code` 结合动态过滤参数**来实现高阶的“粗筛”。
+本文档为 AI Agent 调用 `./ibkr scanner` 时的参数组合指引。**统一使用 `--code` 指定英文 scanCode**，不要使用中文预设名（存在 shell 编码兼容性问题）。
 
 ## 1. 动态命令行接口
 
@@ -46,7 +46,7 @@
 | `HIGH_VS_26W_HL` | 接近 26周(半年)新高 | 中期走势强劲标的 |
 | `LOW_VS_26W_HL` | 接近 26周(半年)新低 | 中期空头趋势深陷标的 |
 
-*注：你可以直接使用中文预设（如 `./ibkr scanner 期权异动`），也可以使用以上的底代码（如 `./ibkr scanner --code HOT_BY_OPT_VOLUME`）。完整列表可通过 API 的 `ib.reqScannerParameters()` 获取。*
+> ⚠️ **统一使用 `--code` 英文参数**。中文预设名（如 `./ibkr scanner 涨幅榜`）在部分终端/shell 环境下存在编码兼容性问题，已不再推荐。完整 scanCode 列表可通过 API 的 `ib.reqScannerParameters()` 获取。
 
 ## 3. 数值过滤参数 (Dynamic Filters)
 
@@ -61,9 +61,34 @@
 | `--vol-above` | 成交量下限 | 确保标的具有足够流动性 |
 | `--size` | 输出数量上限 | 默认 10，最多获取前 N 只 |
 
-## 4. 常见的 AI 本地过滤场景 (粗筛+细筛)
+## 4. 多维条件选股
 
-IBKR API 本身不支持诸如“只看科技股”或者“只看 RSI超卖”的服务器端筛选。
-当你需要处理复杂的综合请求时，请执行两步法：
-1. **API 粗筛**：使用你能找到的最接近的 `--code` 和 `--cap / --price` 拿回基础列表（务必加上 `--json`）。
-2. **AI 细筛**：遍历这些标的，调用 `./ibkr fundamentals` 或 `./ibkr analyze` 过滤出版块/技术面符合要求的股票，然后向用户汇报。
+IBKR API 本身不支持诸如"只看科技股"或者"只看 RSI超卖"的服务器端筛选。有两种方案：
+
+### 方案 A：Finviz 多维选股（推荐）
+
+直接使用 `./ibkr screen`，Finviz 服务端支持行业+估值+技术面+信号的任意组合过滤：
+
+```bash
+./ibkr screen --sector Technology --pe "Under 20" --signal Oversold --json
+./ibkr screen --signal "Top Gainers" --size 10 --json
+./ibkr screen list  # 查看所有可用信号和过滤维度
+```
+
+### 方案 B：IBKR 粗筛 + AI 细筛
+
+当需要 IBKR 特有的排名算法（如成交异动、期权异动）时：
+1. **API 粗筛**：使用 `./ibkr scanner --code` + `--cap / --price` 拿回基础列表（务必加上 `--json`）。
+2. **AI 细筛**：遍历这些标的，调用 `./ibkr fundamentals` 或 `./ibkr analyze` 过滤。
+
+## 5. IBKR Scanner vs Finviz Screener 选用策略
+
+| 场景 | 推荐工具 | 原因 |
+|------|---------|------|
+| 涨幅/跌幅/成交量排名 | IBKR `scanner --code` | IBKR 实时排名算法 |
+| 期权异动、波动率排名 | IBKR `scanner --code` | Finviz 无此数据 |
+| 新高/新低（13周/26周/52周） | IBKR `scanner --code` | IBKR 精确计算 |
+| 行业 + PE + RSI 组合 | Finviz `screen` | IBKR 不支持多维过滤 |
+| 分析师升降级信号 | Finviz `screen --signal Upgrades` | IBKR 无此信号 |
+| 内部人买入/卖出信号 | Finviz `screen --signal "Recent Insider Buying"` | IBKR 无此信号 |
+| 技术形态（双顶/头肩...） | Finviz `screen --signal "Double Bottom"` | IBKR 无形态识别 |

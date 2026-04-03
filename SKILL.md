@@ -104,11 +104,17 @@ bash {baseDir}/scripts/setup.sh ~/trading
 | 相关性矩阵 | `./ibkr portfolio correlation` |
 | 期权、Greeks、到期 | `./ibkr options all --json` |
 | 交易记录、胜率 | `./ibkr trades all` |
-| 市场扫描、条件选股 | `./ibkr scanner --code LOW_PE_RATIO --price-below 50 --json` |
+| 市场扫描（涨幅榜） | `./ibkr scanner --code TOP_PERC_GAIN --json` |
+| 市场扫描（条件选股） | `./ibkr scanner --code LOW_PE_RATIO --price-below 50 --json` |
+| Finviz 多维选股 | `./ibkr screen --sector Technology --pe "Under 20" --json` |
+| 分析师评级、目标价 | `./ibkr ratings AAPL --json` |
+| 内部人交易（高管买卖） | `./ibkr insider AAPL --json` 或 `./ibkr insider market` |
+| 同行公司对比 | `./ibkr peers AAPL --quote --json` |
 | 自选股、Watchlist | `./ibkr watchlist list` |
 | 添加自选股 | `./ibkr watchlist add AAPL --buy 170 --sell 220` |
 | 导出报告/CSV | `./ibkr export all` 或 `./run-report.sh` |
-| 新闻、为什么涨跌 | `./ibkr news AAPL` + 联网搜索 |
+| 新闻、为什么涨跌 | `./ibkr news AAPL` (Yahoo+Finviz) / `./ibkr news market` |
+| Finviz 交易信号 | `./ibkr screen --signal Oversold --size 10 --json` |
 
 > 完整的 CLI 帮助：`./ibkr --help`
 
@@ -149,7 +155,7 @@ bash {baseDir}/scripts/setup.sh ~/trading
 IBKR API 本身不支持跨维度（如“既限制PE，又限制行业，又限制RSI”）的直接过滤。当你遇到这种复杂请求时，你必须作为“大脑”承担本地过滤的工作。执行**“粗筛 + 细筛”两步法**：
 
 1. **🕸️ 第一步：API 粗筛（获取候选池）**
-   利用 IBKR 强大的排名算法，带上 `--json` 获取原始数据。支持的过滤参数有 `--code` (必须提供), `--price-above`, `--price-below`, `--cap-above`, `--cap-below`, `--vol-above`。
+   利用 IBKR 强大的排名算法，带上 `--json` 获取原始数据。**必须使用 `--code` 指定英文 scanCode**（完整列表见 `references/scanner-types.md`），可搭配 `--price-above`, `--price-below`, `--cap-above`, `--cap-below`, `--vol-above` 过滤。
    ```bash
    # 例：获取市盈率极低的股票，限定市值 > 10000000 且 价格 < 50
    ./ibkr scanner --code LOW_PE_RATIO --cap-above 10000000 --price-below 50 --json
@@ -272,12 +278,17 @@ cd ~/trading
 cd ~/trading
 ./ibkr quote AAPL              # 查行情
 ./ibkr analyze NVDA            # 技术分析
-./ibkr fundamentals TSLA       # 基本面
+./ibkr fundamentals TSLA       # 基本面 (IBKR + Finviz)
+./ibkr ratings AAPL            # 分析师评级 (Finviz)
+./ibkr insider AAPL            # 内部人交易 (Finviz)
+./ibkr peers AAPL --quote      # 同行公司 + 行情对比
+./ibkr screen --sector Technology --pe "Under 20"  # 多维选股
 ./ibkr portfolio all           # 组合全分析
-./ibkr scanner 涨幅榜 10       # 市场扫描
+./ibkr scanner --code TOP_PERC_GAIN  # IBKR 市场扫描
 ./ibkr options calendar        # 期权到期日历
 ./ibkr trades all              # 交易复盘
-./ibkr news LMND               # 公司新闻
+./ibkr news AAPL               # 公司新闻 (Yahoo+Finviz)
+./ibkr news market             # 全市场新闻 (Finviz)
 ./ibkr export report           # 综合报告
 ./ibkr --help                  # 查看所有命令
 ```

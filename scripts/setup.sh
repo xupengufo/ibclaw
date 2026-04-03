@@ -65,6 +65,8 @@ copy_runtime_scripts() {
   cp "$REPO_ROOT/scripts/scanner_enhanced.py" "$TRADING_DIR/scanner_enhanced.py"
   cp "$REPO_ROOT/scripts/export.py" "$TRADING_DIR/export.py"
   cp "$REPO_ROOT/scripts/technical_analysis.py" "$TRADING_DIR/technical_analysis.py"
+  cp "$REPO_ROOT/scripts/finviz_data.py" "$TRADING_DIR/finviz_data.py"
+  cp "$REPO_ROOT/scripts/finviz_screener.py" "$TRADING_DIR/finviz_screener.py"
   cp "$REPO_ROOT/scripts/ibkr_cli.py" "$TRADING_DIR/ibkr_cli.py"
   chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py" "$TRADING_DIR/ibkr_cli.py"
 }
@@ -172,7 +174,7 @@ main() {
   source venv/bin/activate
   log "Installing Python dependencies (ib_insync, requests)"
   pip install --upgrade pip >/dev/null
-  pip install ib_insync requests >/dev/null
+  pip install ib_insync requests finvizfinance >/dev/null
 
   copy_runtime_scripts
   create_env_if_missing

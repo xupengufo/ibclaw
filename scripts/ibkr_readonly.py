@@ -272,6 +272,69 @@ class IBKRReadOnlyClient:
             print(f"❌ {symbol} 获取行情失败: {type(e).__name__}: {e}")
             return None
 
+    def get_quotes_batch(self, symbols: List[str]) -> Dict[str, Quote]:
+        """批量获取行情快照（一次网络请求，比逐个 get_quote 快 N 倍）"""
+        if not symbols:
+            return {}
+
+        def safe(val, default=0):
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                return default
+            return val
+
+        # 1. 批量构建 + qualify 合约
+        contracts = []
+        symbol_map = {}  # conId -> symbol (用于回溯)
+        raw_contracts = [Stock(s.upper(), 'SMART', 'USD') for s in symbols]
+
+        try:
+            qualified = self.ib.qualifyContracts(*raw_contracts)
+        except Exception as e:
+            print(f"❌ 批量合约验证失败: {e}")
+            return {}
+
+        for sym, contract in zip(symbols, qualified):
+            if contract and contract.conId:
+                contracts.append(contract)
+                symbol_map[contract.conId] = sym.upper()
+
+        if not contracts:
+            return {}
+
+        # 2. 一次性请求所有行情
+        try:
+            tickers = self.ib.reqTickers(*contracts)
+        except Exception as e:
+            print(f"❌ 批量行情请求失败: {e}")
+            return {}
+
+        # 3. 解析结果
+        results = {}
+        for ticker in tickers:
+            con_id = ticker.contract.conId
+            symbol = symbol_map.get(con_id, ticker.contract.symbol)
+
+            last = safe(ticker.last) or safe(ticker.close)
+            bid = safe(ticker.bid)
+            ask = safe(ticker.ask)
+            volume = safe(ticker.volume)
+            close = safe(ticker.close)
+            change = (last - close) if last and close else 0
+            change_pct = (change / close * 100) if close else 0
+
+            results[symbol] = Quote(
+                conid=con_id,
+                symbol=symbol,
+                last_price=last or 0,
+                bid=bid,
+                ask=ask,
+                volume=int(volume),
+                change=round(change, 2),
+                change_pct=round(change_pct, 2)
+            )
+
+        return results
+
     def get_fundamentals(self, symbol: str) -> Optional[FundamentalData]:
         """获取个股基本面指标"""
         contract = self.search_symbol(symbol)
