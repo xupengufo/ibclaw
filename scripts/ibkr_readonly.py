@@ -603,5 +603,4 @@ def main():
 
 
 if __name__ == "__main__":
-    util.patchAsyncio()
     main()

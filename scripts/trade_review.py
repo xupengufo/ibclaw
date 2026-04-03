@@ -248,9 +248,8 @@ def main():
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from ibkr_readonly import IBKRReadOnlyClient, util
+    from ibkr_readonly import IBKRReadOnlyClient
 
-    util.patchAsyncio()
     client = IBKRReadOnlyClient()
 
     if not client.connect():

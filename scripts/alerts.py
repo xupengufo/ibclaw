@@ -317,9 +317,8 @@ def main():
     """主入口，由 cron 调用"""
     import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from ibkr_readonly import IBKRReadOnlyClient, util
+    from ibkr_readonly import IBKRReadOnlyClient
 
-    util.patchAsyncio()
     client = IBKRReadOnlyClient()
 
     # 先检查 IB Gateway 是否可连

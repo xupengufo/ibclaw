@@ -440,9 +440,8 @@ def main():
     """独立运行：演示增强扫描器和 Watchlist"""
     import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from ibkr_readonly import IBKRReadOnlyClient, util
+    from ibkr_readonly import IBKRReadOnlyClient
 
-    util.patchAsyncio()
     client = IBKRReadOnlyClient()
 
     if not client.connect():

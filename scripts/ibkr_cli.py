@@ -34,8 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def _connect_client():
     """创建并连接 IBKR 客户端，失败时输出诊断信息并退出"""
-    from ibkr_readonly import IBKRReadOnlyClient, util
-    util.patchAsyncio()
+    from ibkr_readonly import IBKRReadOnlyClient
 
     client = IBKRReadOnlyClient()
     if not client.connect():
