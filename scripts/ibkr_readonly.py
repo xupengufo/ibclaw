@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, List, Dict
+import random
 
 from ib_insync import *
 
@@ -42,7 +43,8 @@ load_local_env()
 # Configuration
 IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
 IB_PORT = int(os.getenv("IB_PORT", "4001"))
-IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "1"))
+# 默认使用随机 clientId，避免 AI 并发获取多重数据时发生 Socket 争抢 (Error 326)
+IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", str(random.randint(1000, 9999))))
 
 
 @dataclass
