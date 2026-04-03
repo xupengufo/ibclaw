@@ -433,28 +433,42 @@ def cmd_options(args):
 
 def cmd_trades(args):
     """交易复盘"""
+    json_output = "--json" in args
+    args = [a for a in args if a != "--json"]
     subcommand = args[0] if args else "all"
     client = _connect_client()
 
     from trade_review import (
         get_trade_history, get_trade_statistics,
-        format_trade_history, format_trade_statistics
+        format_trade_history, format_trade_statistics,
+        to_json_trades
     )
 
+    json_results = {}
+
     if subcommand in ("history", "all"):
-        print("⏳ 正在获取近期成交记录...")
+        if not json_output: print("⏳ 正在获取近期成交记录...")
         history = get_trade_history(client)
-        print(format_trade_history(history))
-        print()
+        if json_output:
+            json_results["history"] = history
+        else:
+            print(format_trade_history(history))
+            print()
 
     if subcommand in ("stats", "all"):
-        print("⏳ 正在统计交易数据...")
+        if not json_output: print("⏳ 正在统计交易数据...")
         stats = get_trade_statistics(client)
-        if stats:
-            print(format_trade_statistics(stats))
+        if json_output:
+            json_results["statistics"] = stats
         else:
-            print("ℹ️ 无成交记录，无法生成统计")
-        print()
+            if stats:
+                print(format_trade_statistics(stats))
+            else:
+                print("ℹ️ 无成交记录，无法生成统计")
+            print()
+
+    if json_output:
+        print(to_json_trades(json_results))
 
     _safe_disconnect(client)
 
@@ -595,22 +609,29 @@ def cmd_watchlist(args):
 def cmd_news(args):
     """查询公司新闻（Yahoo RSS + Finviz 双源合并）"""
     from finviz_data import get_finviz_news, get_finviz_market_news, format_news
+    import json as _json
 
-    if not args:
-        print("用法: python ibkr_cli.py news SYMBOL [limit]")
-        print("       python ibkr_cli.py news market")
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    if not clean_args:
+        print("用法: python ibkr_cli.py news SYMBOL [limit] [--json]")
+        print("       python ibkr_cli.py news market [--json]")
         sys.exit(1)
 
     # 全市场新闻
-    if args[0].lower() == "market":
+    if clean_args[0].lower() == "market":
         market_news = get_finviz_market_news()
-        print(format_news(market_news.get("news", []), "全市场新闻", limit=20))
-        print()
-        print(format_news(market_news.get("blogs", []), "财经博客", limit=10))
+        if json_output:
+            print(_json.dumps(market_news, ensure_ascii=False, indent=2, default=str))
+        else:
+            print(format_news(market_news.get("news", []), "全市场新闻", limit=20))
+            print()
+            print(format_news(market_news.get("blogs", []), "财经博客", limit=10))
         return
 
-    symbol = args[0].upper()
-    limit = int(args[1]) if len(args) > 1 and args[1].isdigit() else 10
+    symbol = clean_args[0].upper()
+    limit = int(clean_args[1]) if len(clean_args) > 1 and clean_args[1].isdigit() else 10
 
     # 双源获取
     all_news = []
@@ -649,7 +670,13 @@ def cmd_news(args):
             seen_titles.add(title)
             unique_news.append(item)
 
-    if unique_news:
+    if json_output:
+        print(_json.dumps({
+            "symbol": symbol,
+            "count": len(unique_news[:limit]),
+            "news": unique_news[:limit]
+        }, ensure_ascii=False, indent=2, default=str))
+    elif unique_news:
         print(f"📰 {symbol} 最新新闻 (Yahoo + Finviz, 共 {len(unique_news)} 条):")
         print("=" * 65)
         for idx, item in enumerate(unique_news[:limit], 1):

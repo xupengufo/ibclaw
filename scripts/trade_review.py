@@ -227,6 +227,20 @@ def format_trade_statistics(stats: TradeStatistics) -> str:
     )
 
 
+def to_json_trades(results: dict) -> str:
+    import json
+    import dataclasses
+    
+    out = {}
+    if "history" in results:
+        out["history"] = [dataclasses.asdict(r) for r in results["history"]]
+    if "statistics" in results:
+        stats = results["statistics"]
+        out["statistics"] = dataclasses.asdict(stats) if stats else None
+        
+    return json.dumps(out, ensure_ascii=False, indent=2, default=str)
+
+
 # ─── 独立运行入口 ─────────────────────────────────────────────
 
 def main():

@@ -90,31 +90,33 @@ bash {baseDir}/scripts/setup.sh ~/trading
 
 根据用户意图，使用统一 CLI 入口调用对应模块。**所有命令在 `~/trading/` 目录下执行**。
 
-| 用户意图 | CLI 命令 |
-|---------|---------|
-| 持仓、余额、净值 | `./ibkr quote` 或 `./run-readonly.sh` |
-| 某只股票现在多少钱 | `./ibkr quote AAPL` |
-| 分析XX股票、走势、技术面 | `./ibkr analyze AAPL --json` |
-| 基本面、市值、PE、财报 | `./ibkr fundamentals AAPL --json` |
-| 历史 K 线 | `./ibkr history AAPL --period '3 M'` |
-| 组合配置、集中度、Beta | `./ibkr portfolio all --json` |
-| 对比基准、Alpha | `./ibkr portfolio benchmark SPY '3 M'` |
-| 盈亏归因 | `./ibkr portfolio attribution` |
-| 最大回撤 | `./ibkr portfolio drawdown AAPL` |
-| 相关性矩阵 | `./ibkr portfolio correlation` |
-| 期权、Greeks、到期 | `./ibkr options all --json` |
-| 交易记录、胜率 | `./ibkr trades all` |
-| 市场扫描（涨幅榜） | `./ibkr scanner --code TOP_PERC_GAIN --json` |
-| 市场扫描（条件选股） | `./ibkr scanner --code LOW_PE_RATIO --price-below 50 --json` |
-| Finviz 多维选股 | `./ibkr screen --sector Technology --pe "Under 20" --json` |
-| 分析师评级、目标价 | `./ibkr ratings AAPL --json` |
-| 内部人交易（高管买卖） | `./ibkr insider AAPL --json` 或 `./ibkr insider market` |
-| 同行公司对比 | `./ibkr peers AAPL --quote --json` |
-| 自选股、Watchlist | `./ibkr watchlist list` |
-| 添加自选股 | `./ibkr watchlist add AAPL --buy 170 --sell 220` |
-| 导出报告/CSV | `./ibkr export all` 或 `./run-report.sh` |
-| 新闻、为什么涨跌 | `./ibkr news AAPL` (Yahoo+Finviz) / `./ibkr news market` |
-| Finviz 交易信号 | `./ibkr screen --signal Oversold --size 10 --json` |
+> ⚠️ **SOP 优先**：如果用户意图匹配了下方「高级思维链路 (SOP Workflows)」中的场景，**优先走对应 SOP 流程**，不要使用此表的单条命令。SOP 会串联多个命令并生成完整研报。
+
+| 用户意图 | CLI 命令 | 备注 |
+|---------|---------|------|
+| 持仓、余额、净值 | `./ibkr quote` 或 `./run-readonly.sh` | |
+| 某只股票现在多少钱 | `./ibkr quote AAPL` | |
+| 分析XX股票、走势、技术面 | `./ibkr analyze AAPL --json` | 深度分析请走 `/SOP-stock-xray` |
+| 基本面、市值、PE、财报 | `./ibkr fundamentals AAPL --json` | |
+| 历史 K 线 | `./ibkr history AAPL --period '3 M'` | |
+| 组合配置、集中度、Beta | `./ibkr portfolio all --json` | |
+| 对比基准、Alpha | `./ibkr portfolio benchmark SPY '3 M'` | |
+| 盈亏归因 | `./ibkr portfolio attribution` | |
+| 最大回撤 | `./ibkr portfolio drawdown AAPL` | |
+| 相关性矩阵 | `./ibkr portfolio correlation` | |
+| 期权、Greeks、到期 | `./ibkr options all --json` | |
+| 交易记录、胜率 | `./ibkr trades all --json` | |
+| 市场扫描（涨幅榜） | `./ibkr scanner --code TOP_PERC_GAIN --json` | |
+| 市场扫描（条件选股） | `./ibkr scanner --code LOW_PE_RATIO --price-below 50 --json` | |
+| Finviz 多维选股 | `./ibkr screen --sector Technology --pe "Under 20" --json` | |
+| 分析师评级、目标价 | `./ibkr ratings AAPL --json` | |
+| 内部人交易（高管买卖） | `./ibkr insider AAPL --json` 或 `./ibkr insider market` | |
+| 同行公司对比 | `./ibkr peers AAPL --quote --json` | |
+| 自选股、Watchlist | `./ibkr watchlist list` | |
+| 添加自选股 | `./ibkr watchlist add AAPL --buy 170 --sell 220` | |
+| 导出报告/CSV | `./ibkr export all` 或 `./run-report.sh` | |
+| 新闻、为什么涨跌 | `./ibkr news AAPL --json` / `./ibkr news market --json` | |
+| Finviz 交易信号 | `./ibkr screen --signal Oversold --size 10 --json` | |
 
 > 完整的 CLI 帮助：`./ibkr --help`
 
@@ -303,7 +305,9 @@ cd ~/trading
 
 ## 高级思维链路 (SOP Workflows)
 
-为了让你（AI Agent）表现得更像一个成熟的交易员，我们内置了特定的标准研报流水线（Workflows）。**请在执行用户的宽泛请求时，严格遵循以下预设链路：**
+为了让你（AI Agent）表现得更像一个成熟的交易员，我们内置了特定的标准研报流水线（Workflows）。
+
+> ⚠️ **SOP 优先于上方的意图路由表**。当用户意图匹配以下任何一个 SOP 时，必须走 SOP 的完整串行流程，而不是简单地调用单条 CLI 命令。SOP 会帮你串联数据采集、交叉验证、研报输出全链路。
 
 *   **个股深度诊断 (`/SOP-stock-xray`)**: 
     当用户问“分析某只股票”、“现在能买某只股吗”时触发。要求你在后台静默查阅 *基本面+技术面+分析师评级+高管买卖* 四维数据后，再给出最终研报定调。
@@ -311,17 +315,6 @@ cd ~/trading
     当用户问“选几只短线机会”、“这周有什么标的”时触发。禁止凭借旧知识胡编乱造，要求你先跑市场扫雷 (`scanner`) 看异动热点，再调多维选股 (`screen`) 下钻出技术面/基本面良好的 1-2 只个股。
 *   **市场温度盘点 (`/SOP-market-pulse`)**: 
     当用户问“今天大盘这主线在弄啥”时触发。切忌空谈宏观，要求你必须从 SPY/QQQ 真实技术指标，以及全市场的内部人套现/增持汇总 (`insider market`) 中找出实际支撑的论点。
-- "帮我看看苹果 (AAPL) 最近的基本面，市值和市盈率怎么样？"
-- "利用 IBKR 历史数据，分析一下 NVDA 最近 3 个月的走势"
-- "帮我做一下 TSLA 的技术分析，支撑位和阻力位在哪？"
-- "今天美股涨得最猛的 10 只股票是哪些？"
-- "分析一下我的投资组合配置是否合理"
-- "我的持仓集中度怎么样？有没有过于集中的风险？"
-- "帮我对比下我的组合收益和 SPY 谁更好"
-- "我有哪些期权快到期了？Greeks 是多少？"
-- "帮我查查最近的交易胜率和盈亏比"
-- "把 AAPL 加入我的自选股，目标买入价 170，卖出价 220"
-- "帮我导出一份完整的投资分析报告"
 
 ## 健康检查
 
