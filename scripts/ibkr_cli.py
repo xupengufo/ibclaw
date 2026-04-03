@@ -96,21 +96,46 @@ def cmd_status(args):
 
 def cmd_quote(args):
     """查询实时行情"""
-    if not args:
-        print("用法: python ibkr_cli.py quote SYMBOL [SYMBOL2 ...]")
-        sys.exit(1)
+    json_output = "--json" in args
+    symbols = [a for a in args if a != "--json"]
 
     client = _connect_client()
     from ibkr_readonly import format_currency
 
-    for symbol in args:
+    if not symbols:
+        # 获取股票持仓作为默认代码
+        positions = client.get_positions()
+        symbols = [p.symbol for p in positions if p.sec_type == "STK"]
+        if not symbols:
+            if json_output:
+                import json
+                print(json.dumps({"error": "未指定股票，且未找到股票持仓"}))
+            else:
+                print("⚠️ 未指定股票代码，且当前无股票持仓。用法: python ibkr_cli.py quote SYMBOL")
+            _safe_disconnect(client)
+            sys.exit(1)
+
+    json_results = {}
+
+    for symbol in symbols:
         quote = client.get_quote(symbol.upper())
-        if quote:
-            emoji = "📈" if quote.change_pct > 0 else "📉" if quote.change_pct < 0 else "➖"
-            print(f"{emoji} {quote.symbol}: ${quote.last_price:.2f} ({quote.change_pct:+.2f}%) "
-                  f"| Bid: ${quote.bid:.2f} Ask: ${quote.ask:.2f} | Vol: {quote.volume:,}")
+        if json_output:
+            if quote:
+                import dataclasses
+                json_results[symbol] = dataclasses.asdict(quote)
+            else:
+                json_results[symbol] = {"error": "获取行情失败"}
         else:
-            print(f"⚠️ {symbol}: 未找到该股票或获取行情失败（请检查股票代码是否正确）")
+            if quote:
+                emoji = "📈" if quote.change_pct > 0 else "📉" if quote.change_pct < 0 else "➖"
+                print(f"{emoji} {quote.symbol}: ${quote.last_price:.2f} ({quote.change_pct:+.2f}%) "
+                      f"| Bid: ${quote.bid:.2f} Ask: ${quote.ask:.2f} | Vol: {quote.volume:,}")
+            else:
+                print(f"⚠️ {symbol}: 未找到该股票或获取行情失败（请检查股票代码是否正确）")
+
+    if json_output:
+        import json
+        print(json.dumps(json_results, ensure_ascii=False, indent=2))
 
     _safe_disconnect(client)
 
