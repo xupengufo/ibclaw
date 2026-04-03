@@ -1,11 +1,11 @@
-# ib_insync API 参考（只读操作）
+# ib_async API 参考（只读操作）
 
 > 此文档仅包含本项目使用的只读 API。下单/修改/取消订单的 API 被刻意排除。
 
 ## 连接管理
 
 ```python
-from ib_insync import *
+from ib_async import *
 
 ib = IB()
 ib.connect(host='127.0.0.1', port=4001, clientId=1, readonly=True)

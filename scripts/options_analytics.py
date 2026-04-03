@@ -97,7 +97,7 @@ def get_option_greeks(client, position) -> Optional[OptionGreeks]:
     days = _calc_days_to_expiry(position.expiry)
 
     # 构造期权 Contract
-    from ib_insync import Option
+    from ib_async import Option
     try:
         contract = Option(
             symbol=position.symbol.split()[0] if ' ' in position.symbol else position.symbol,

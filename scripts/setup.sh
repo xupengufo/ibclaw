@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IBKR Read-Only Setup Script (v2: IB Gateway + ib_insync)
+# IBKR Read-Only Setup Script (v2: IB Gateway + ib_async)
 # Supports: Debian and macOS
 
 set -euo pipefail
@@ -172,9 +172,9 @@ main() {
 
   # shellcheck disable=SC1091
   source venv/bin/activate
-  log "Installing Python dependencies (ib_insync, requests)"
+  log "Installing Python dependencies (ib_async, requests)"
   pip install --upgrade pip >/dev/null
-  pip install ib_insync requests finvizfinance >/dev/null
+  pip install ib_async requests finvizfinance >/dev/null
 
   copy_runtime_scripts
   create_env_if_missing

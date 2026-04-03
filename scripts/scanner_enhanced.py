@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Dict
 
-from ib_insync import ScannerSubscription, TagValue
+from ib_async import ScannerSubscription, TagValue
 
 
 # ─── 配置 ─────────────────────────────────────────────────────

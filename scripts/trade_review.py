@@ -4,7 +4,7 @@
 提供：近期成交记录、交易统计（胜率、盈亏比等）。
 所有函数接收 IBKRReadOnlyClient 实例，纯只读操作。
 
-⚠️ 注意：ib_insync 的 executions()/fills() 通常仅返回当天或最近 7 天的数据。
+⚠️ 注意：ib_async 的 executions()/fills() 通常仅返回当天或最近 7 天的数据。
 更长时间的历史需要 IBKR Flex Query（不在当前范围内）。
 """
 
@@ -177,7 +177,7 @@ def get_trade_statistics(client) -> Optional[TradeStatistics]:
 
 def format_trade_history(records: List[TradeRecord], limit: int = 20) -> str:
     if not records:
-        return "📋 近期成交记录: 无数据\n(ib_insync fills 通常仅包含当天/近 7 天的成交)"
+        return "📋 近期成交记录: 无数据\n(ib_async fills 通常仅包含当天/近 7 天的成交)"
 
     lines = [
         "📋 近期成交记录",

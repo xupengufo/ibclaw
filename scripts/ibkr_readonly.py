@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-IBKR Read-Only Client - ib_insync 版本
-通过 IB Gateway (socket API) 查询持仓、余额、实时行情、基本面、历史K线等。
+# IBKR Read-Only Client - ib_async 版本
+# 封装基础连接、获取持仓、查询行情及历史数据
+# 
+# 依赖：ib_async (pip install ib_async) 查询持仓、余额、实时行情、基本面、历史K线等。
 安全特性：此脚本不包含任何下单、修改订单、取消订单的功能。
 
-依赖：ib_insync (pip install ib_insync)
 连接：IB Gateway 端口 4001 (live) 或 4002 (paper)
 """
 
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict
 import random
 
-from ib_insync import *
+from ib_async import *
 
 
 def load_local_env():
@@ -101,7 +102,7 @@ class FundamentalData:
 
 class IBKRReadOnlyClient:
     """
-    IBKR 只读客户端 - ib_insync 版
+    IBKR 只读客户端 - ib_async 版
     通过 IB Gateway socket API 直连，比 Client Portal HTTP 更稳定。
     ⚠️ 安全说明：此类不包含任何下单、修改、取消订单的方法。
     """
@@ -540,7 +541,7 @@ def format_pnl(value: float, pct: float) -> str:
 
 def main():
     """主函数 - 展示账户信息"""
-    print("🏦 IBKR 投研辅助与只读查询工具 (ib_insync)")
+    print("🏦 IBKR 投研辅助与只读查询工具 (ib_async)")
     print("=" * 50)
     print("⚠️  安全模式：仅查询，无法执行任何交易操作")
     print("=" * 50)

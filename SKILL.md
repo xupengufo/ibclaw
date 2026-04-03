@@ -18,12 +18,12 @@ metadata: {"openclaw":{"requires":{"os":["darwin","linux"],"bins":["bash","pytho
 
 ## 架构
 
-通过 **IB Gateway** (桌面版) + **ib_insync** (socket API) 直连，替代了之前不稳定的 Client Portal Gateway HTTP 方案。
+通过 **IB Gateway** (桌面版) + **ib_async** (socket API) 直连，替代了之前不稳定的 Client Portal Gateway HTTP 方案。
 
 | 组件 | 说明 |
 |------|------|
 | IB Gateway | IBKR 官方桌面应用，常驻后台，支持 Auto Restart |
-| ib_insync | Python socket API 客户端，内置断线重连 |
+| ib_async | Python socket API 客户端，内置断线重连 |
 | ibkr_cli.py | 统一 CLI 入口，Agent 通过简洁命令调用所有模块 |
 | keepalive.py | 健康检查脚本，断线时发 Telegram 通知 |
 
