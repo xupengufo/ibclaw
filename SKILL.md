@@ -60,31 +60,34 @@ metadata: {"openclaw":{"requires":{"os":["darwin","linux"],"bins":["bash","pytho
 
 **为什么风险提示不能省？** 投资决策的后果由用户承担。每份研报结尾加上"以上分析仅供参考，不构成投资建议"，既是对用户负责，也是法律保护。
 
-### 第零步：环境就绪检查
+### 第零步：环境就绪检查与初始化配置
 
-在执行任何查询前，先确认运行环境是否就绪。这一步很重要，因为 IB Gateway 需要用户手动启动和登录。
+在执行任何查询前，必须确认运行环境是否就绪。IB Gateway 需要用户手动启动并配置，这是无法由 Agent 代劳的物理前提：
 
 ```bash
 cd ~/trading
 ./ibkr status
 ```
 
-**如果 `~/trading` 目录不存在**，说明是首次使用，需要先部署：
+**如果 `~/trading` 目录不存在**，说明是首次使用，需引导用户完成以下部署步骤：
 
-```bash
-bash {baseDir}/scripts/setup.sh ~/trading
-```
+1. **环境初始化**：使用本地脚本部署工作区（支持 macOS/Linux，需 Python 3.9+ 与 Java 17+）。
+   ```bash
+   bash {baseDir}/scripts/setup.sh ~/trading
+   ```
+2. **安装 IB Gateway**：请用户从[官网稳定版通道](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php)下载安装。
+3. **安全配置与登录**：启动 IB Gateway → 选择 "IB API" 模式 → 使用**只读子账户**凭据登录（需手机 IBKR Key 2FA 确认）。
+4. **API Settings 配置**（必须在 Gateway 界面手动设置）：
+   - ✅ **Enable ActiveX and Socket Clients**
+   - ❌ **Read-Only API**（强烈要求**取消勾选**此项，否则会阻截正常查询。系统安全性由「只读子账户」属性在云端保障！）
+   - **Socket port**: 设为 `4001`
+   - **Trusted IPs**: 添加 `127.0.0.1`
+   - ✅ **Auto Restart**（位于 Settings → Lock and Exit，设为定期自动重启保活）
+5. **环境变量确认**：脚本应已生成 `~/trading/.env`（必须含 `IB_PORT=4001`）。
+6. **最终验证**：再次运行 `./ibkr status` 确保拿到绿灯。
 
-然后引导用户完成以下步骤（这些步骤需要用户手动操作，你无法自动完成）：
-
-1. **安装 IB Gateway**：从 https://www.interactivebrokers.com/en/trading/ibgateway-stable.php 下载
-2. **首次登录**：启动 IB Gateway → 选择 "IB API" 模式 → 输入只读子账户凭据 → 手机确认 2FA
-3. **配置 API**：Enable Socket Clients, 端口 4001, Trusted IP 127.0.0.1, 勾选 Auto Restart
-4. **验证连接**：`cd ~/trading && ./ibkr status`
-
-连接成功后，告知用户："IB Gateway 已连接，之后每周自动续期，只有 Mac 重启后才需要手动登录。"
-
-**如果 `./ibkr status` 报端口不通**，说明 IB Gateway 未运行或未登录，提示用户启动并登录即可。更多排查信息见 `references/troubleshooting.md`。
+连接成功后，告知用户："网关配置成功并已建立长连接。在 Auto Restart 机制下，以后除非电脑关机或手动退出，否则无须再烦神登录。"
+如果 `./ibkr status` 依然报端口不通，可查阅 `references/troubleshooting.md` 进行排错。
 
 ### 第一步：意图识别与模块路由
 
@@ -224,53 +227,7 @@ IBKR API 本身不支持跨维度（如“既限制PE，又限制行业，又限
 - **外部搜索不可用**：输出本地数据分析，标注"外部信息覆盖不足，建议用户自行查看最新财经新闻"
 - **某只股票数据缺失**：已有数据正常分析，缺失部分标注"未获取到"，不要用猜测或虚构数据填充
 
-## 前置条件
 
-1. IBKR 账户（真实或模拟盘）
-2. 手机安装 IBKR Key App（首次登录 IB Gateway 需要 2FA）
-3. Debian / macOS 需要 Java 17+ 和 Python 3.9+
-4. **IB Gateway** 桌面应用（从 IBKR 官网下载）
-
-## 快速配置
-
-### 1. 安装依赖
-
-```bash
-# Debian / macOS 一键安装运行环境
-bash {baseDir}/scripts/setup.sh ~/trading
-```
-
-### 2. 安装 IB Gateway
-
-从 IBKR 官网下载 **IB Gateway** (Stable channel)：
-https://www.interactivebrokers.com/en/trading/ibgateway-stable.php
-
-安装后启动，用你的只读子账户登录（需手机 2FA 确认）。
-
-### 3. 配置 IB Gateway API Settings
-
-在 IB Gateway 界面中：
-- ✅ **Enable ActiveX and Socket Clients**
-- ❌ **Read-Only API**（不要勾选，会阻止部分查询 API。安全性由账户层保障）
-- 端口：**4001** (live)
-- Trusted IPs：**127.0.0.1**
-- ✅ **Auto Restart**（Settings → Lock and Exit → Auto restart，每周日自动重启）
-
-### 4. 配置环境变量
-
-`~/trading/.env`：
-```bash
-IB_HOST=127.0.0.1
-IB_PORT=4001
-IB_CLIENT_ID=1
-```
-
-### 5. 测试连接
-
-```bash
-cd ~/trading
-./ibkr status
-```
 
 ## 使用方法
 
