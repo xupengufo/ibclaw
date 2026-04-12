@@ -278,6 +278,35 @@ def check_watchlist_targets(client, state: dict) -> List[str]:
     return alerts
 
 
+def check_earnings_alerts(client, state: dict) -> List[str]:
+    """检查持仓是否临近财报日期（3 天内）"""
+    alerts = []
+    try:
+        from earnings_calendar import get_portfolio_earnings
+        events = get_portfolio_earnings(client)
+
+        for event in events:
+            if 0 <= event.days_until <= 3:
+                if _should_alert(state, "earnings", event.symbol):
+                    timing_map = {"AMC": "盘后", "BMO": "盘前", "Unknown": "时间未定"}
+                    timing_text = timing_map.get(event.timing, event.timing)
+                    msg = (
+                        f"📅 <b>财报临近提醒</b>\n"
+                        f"{event.symbol} 将于 {event.earnings_date} 发布财报\n"
+                        f"距今: {event.days_until} 天  |  时段: {timing_text}\n"
+                        f"持仓市值: ${event.market_value:,.0f}\n"
+                        f"⚠️ 注意财报前后波动风险"
+                    )
+                    alerts.append(msg)
+                    _mark_alerted(state, "earnings", event.symbol)
+    except ImportError:
+        log("  ⚠️ earnings_calendar 模块不可用，跳过财报检查")
+    except Exception as e:
+        log(f"  ⚠️ 财报日期检查失败: {e}")
+
+    return alerts
+
+
 # ─── 主入口 ───────────────────────────────────────────────────
 
 def run_all_checks(client) -> List[str]:
@@ -305,6 +334,10 @@ def run_all_checks(client) -> List[str]:
     # 4. Watchlist 目标价
     log("  检查 Watchlist 目标价...")
     all_alerts.extend(check_watchlist_targets(client, state))
+
+    # 5. 财报临近
+    log("  检查财报日期...")
+    all_alerts.extend(check_earnings_alerts(client, state))
 
     # 保存状态
     state["last_check"] = datetime.now().isoformat()

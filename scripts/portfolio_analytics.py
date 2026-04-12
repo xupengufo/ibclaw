@@ -426,6 +426,89 @@ def get_max_drawdown(client, symbol: str = None, period: str = "1 Y") -> Optiona
     )
 
 
+def get_portfolio_drawdown(client, period: str = "1 Y") -> Optional[DrawdownInfo]:
+    """
+    计算组合级加权最大回撤
+    按持仓市值权重合成历史净值曲线，再计算其最大回撤。
+    比单看 SPY 或单只股票更能反映用户实际组合的风险。
+    """
+    positions = client.get_positions()
+    stock_positions = [p for p in positions if p.sec_type == "STK"]
+    if not stock_positions:
+        return None
+
+    total_value = sum(abs(p.market_value) for p in stock_positions)
+    if total_value == 0:
+        return None
+
+    # 收集每只股票的日收益率序列，按权重加总构建组合净值
+    weight_returns = {}  # symbol -> (weight, daily_returns_list)
+    min_length = None
+
+    for p in stock_positions:
+        weight = abs(p.market_value) / total_value
+        try:
+            bars = client.get_historical_data(p.symbol, duration=period, bar_size="1 day")
+            if not bars or len(bars) < 5:
+                continue
+            returns = _calc_daily_returns(bars)
+            dates = [b["date"] for b in bars[1:]]  # 对齐日收益率
+            weight_returns[p.symbol] = (weight, returns, dates)
+            if min_length is None or len(returns) < min_length:
+                min_length = len(returns)
+        except Exception:
+            continue
+
+    if not weight_returns or min_length is None or min_length < 5:
+        return None
+
+    # 对齐到最短序列长度，并按权重合成组合日收益率
+    portfolio_returns = [0.0] * min_length
+    dates = None
+    for symbol, (weight, returns, d) in weight_returns.items():
+        aligned = returns[-min_length:]
+        if dates is None:
+            dates = d[-min_length:]
+        for i in range(min_length):
+            portfolio_returns[i] += weight * aligned[i]
+
+    # 从组合日收益率构建净值曲线（以 100 为基准）
+    nav = [100.0]
+    for r in portfolio_returns:
+        nav.append(nav[-1] * (1 + r))
+
+    # 计算最大回撤
+    peak = nav[0]
+    peak_idx = 0
+    max_dd = 0.0
+    dd_peak_idx = 0
+    dd_trough_idx = 0
+
+    for i, value in enumerate(nav):
+        if value > peak:
+            peak = value
+            peak_idx = i
+        drawdown = (peak - value) / peak * 100
+        if drawdown > max_dd:
+            max_dd = drawdown
+            dd_peak_idx = peak_idx
+            dd_trough_idx = i
+
+    # 映射回日期（nav 有 min_length+1 个点，dates 有 min_length 个点）
+    all_dates = ["(start)"] + (dates if dates else [])
+    peak_date = all_dates[dd_peak_idx] if dd_peak_idx < len(all_dates) else "N/A"
+    trough_date = all_dates[dd_trough_idx] if dd_trough_idx < len(all_dates) else "N/A"
+
+    return DrawdownInfo(
+        max_drawdown_pct=round(max_dd, 2),
+        peak_date=peak_date,
+        trough_date=trough_date,
+        peak_value=round(nav[dd_peak_idx], 2),
+        trough_value=round(nav[dd_trough_idx], 2),
+        symbol_or_label=f"组合({len(weight_returns)}只股票加权)"
+    )
+
+
 # ─── 格式化输出 ───────────────────────────────────────────────
 
 def to_json_portfolio(data) -> str:

@@ -52,15 +52,49 @@ def log(msg):
 
 
 def check_gateway_process() -> bool:
-    """检查 IB Gateway 进程是否存在"""
+    """检查 IB Gateway 进程是否存在（多种检测方式，兼容缺少 pgrep 的环境）"""
+    # 方式 1：pgrep（macOS / 大部分 Linux）
     try:
         result = subprocess.run(
             ["pgrep", "-f", "ibgateway"],
             capture_output=True, text=True, timeout=5
         )
         return result.returncode == 0
+    except FileNotFoundError:
+        pass  # pgrep 不存在，尝试 fallback
     except Exception:
-        return False
+        pass
+
+    # 方式 2：ps aux + grep（pgrep 不可用时的通用 fallback）
+    try:
+        result = subprocess.run(
+            ["ps", "aux"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return "ibgateway" in result.stdout.lower()
+    except Exception:
+        pass
+
+    # 方式 3：遍历 /proc（极端精简 Linux 环境，无 ps 也无 pgrep）
+    try:
+        proc_dir = "/proc"
+        if os.path.isdir(proc_dir):
+            for pid in os.listdir(proc_dir):
+                if not pid.isdigit():
+                    continue
+                try:
+                    cmdline_path = os.path.join(proc_dir, pid, "cmdline")
+                    with open(cmdline_path, "r") as f:
+                        cmdline = f.read().lower()
+                    if "ibgateway" in cmdline:
+                        return True
+                except (PermissionError, FileNotFoundError, IOError):
+                    continue
+    except Exception:
+        pass
+
+    return False
 
 
 def check_socket_connection() -> bool:

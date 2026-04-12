@@ -502,6 +502,153 @@ class IBKRReadOnlyClient:
             print(f"❌ 扫描失败: {e}")
             return []
 
+    def get_option_chain_data(self, symbol: str, expiry: str = None, strike_range: int = 10) -> dict:
+        """
+        获取期权链数据：可用到期日、指定到期日的各行权价 Greeks/OI 信息。
+
+        Args:
+            symbol: 标的代码
+            expiry: 到期日 (YYYYMMDD)，None 则返回所有可用到期日
+            strike_range: 取当前价上下各 N 个行权价
+
+        Returns:
+            dict: {expirations, chain, put_call_ratio, ...}
+        """
+        from ib_async import Stock, Option
+        import math
+
+        contract = self.search_symbol(symbol)
+        if not contract:
+            return {"error": f"{symbol}: 合约不存在"}
+
+        try:
+            # 获取可用期权参数
+            chains = self.ib.reqSecDefOptParams(
+                contract.symbol, '', contract.secType, contract.conId
+            )
+            if not chains:
+                return {"error": f"{symbol}: 无期权链数据"}
+
+            # 取 SMART 交易所的链（通常是最全的）
+            smart_chain = None
+            for c in chains:
+                if c.exchange == 'SMART':
+                    smart_chain = c
+                    break
+            if not smart_chain:
+                smart_chain = chains[0]
+
+            expirations = sorted(smart_chain.expirations)
+            all_strikes = sorted(smart_chain.strikes)
+
+            result = {
+                "symbol": symbol,
+                "exchange": smart_chain.exchange,
+                "expirations": expirations,
+                "total_strikes": len(all_strikes),
+            }
+
+            # 如果未指定到期日，仅返回到期日列表
+            if not expiry:
+                return result
+
+            # 获取当前价格以确定行权价范围
+            [ticker] = self.ib.reqTickers(contract)
+            current_price = ticker.last or ticker.close or 0
+            if current_price <= 0:
+                return {**result, "error": "无法获取当前价格"}
+
+            result["current_price"] = current_price
+
+            # 筛选附近的行权价
+            nearby_strikes = sorted(
+                all_strikes,
+                key=lambda s: abs(s - current_price)
+            )[:strike_range * 2]
+            nearby_strikes = sorted(nearby_strikes)
+
+            # 为 Call 和 Put 构建合约并获取数据
+            chain_data = {"calls": [], "puts": []}
+            total_call_oi = 0
+            total_put_oi = 0
+
+            for right in ["C", "P"]:
+                contracts = []
+                for strike in nearby_strikes:
+                    opt = Option(symbol, expiry, strike, right, 'SMART')
+                    contracts.append(opt)
+
+                # 批量 qualify
+                try:
+                    qualified = self.ib.qualifyContracts(*contracts)
+                except Exception:
+                    qualified = []
+
+                if not qualified:
+                    continue
+
+                # 批量获取行情快照
+                tickers = self.ib.reqTickers(*qualified)
+
+                for opt_contract, t in zip(qualified, tickers):
+                    delta = gamma = theta = vega = iv = 0.0
+                    if t.modelGreeks:
+                        def safe(v):
+                            return float(v) if v is not None and not (isinstance(v, float) and math.isnan(v)) else 0.0
+                        delta = safe(t.modelGreeks.delta)
+                        gamma = safe(t.modelGreeks.gamma)
+                        theta = safe(t.modelGreeks.theta)
+                        vega = safe(t.modelGreeks.vega)
+                        iv = safe(t.modelGreeks.impliedVol)
+
+                    bid = t.bid if t.bid and t.bid > 0 else 0
+                    ask = t.ask if t.ask and t.ask > 0 else 0
+                    last = t.last if t.last and t.last > 0 else 0
+                    volume = int(t.volume) if t.volume and t.volume > 0 else 0
+
+                    # OpenInterest 需要通过 generic tick
+                    oi = 0
+                    if hasattr(t, 'callOpenInterest') and right == "C":
+                        oi = int(t.callOpenInterest or 0)
+                    elif hasattr(t, 'putOpenInterest') and right == "P":
+                        oi = int(t.putOpenInterest or 0)
+
+                    entry = {
+                        "strike": opt_contract.strike,
+                        "bid": round(bid, 2),
+                        "ask": round(ask, 2),
+                        "last": round(last, 2),
+                        "volume": volume,
+                        "open_interest": oi,
+                        "delta": round(delta, 4),
+                        "gamma": round(gamma, 4),
+                        "theta": round(theta, 4),
+                        "vega": round(vega, 4),
+                        "implied_vol": round(iv, 4),
+                    }
+
+                    if right == "C":
+                        chain_data["calls"].append(entry)
+                        total_call_oi += oi
+                    else:
+                        chain_data["puts"].append(entry)
+                        total_put_oi += oi
+
+            # Put/Call Ratio
+            pcr = round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else 0
+
+            result["expiry"] = expiry
+            result["chain"] = chain_data
+            result["total_call_oi"] = total_call_oi
+            result["total_put_oi"] = total_put_oi
+            result["put_call_ratio"] = pcr
+
+            return result
+
+        except Exception as e:
+            print(f"❌ 获取期权链失败: {e}")
+            return {"error": str(e)}
+
     def get_company_news(self, symbol: str, limit: int = 5) -> List[dict]:
         """
         获取公司最新新闻 (Yahoo Finance RSS)

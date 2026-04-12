@@ -270,7 +270,7 @@ def cmd_portfolio(args):
     from portfolio_analytics import (
         get_portfolio_allocation, get_concentration_risk, get_portfolio_beta,
         get_correlation_matrix, get_benchmark_comparison,
-        get_performance_attribution, get_max_drawdown,
+        get_performance_attribution, get_max_drawdown, get_portfolio_drawdown,
         format_allocation, format_concentration, format_benchmark,
         format_attribution, format_drawdown, to_json_portfolio
     )
@@ -344,6 +344,19 @@ def cmd_portfolio(args):
             else:
                 print("⚠️ 无法计算最大回撤: 历史数据不足")
             print()
+
+        # 组合级加权回撤（仅在 drawdown 或 all 子命令时额外计算）
+        if target is None:  # 未指定个股时才跑组合回撤
+            if not json_output: print("⏳ 正在计算组合加权回撤...")
+            pdd = get_portfolio_drawdown(client, "1 Y")
+            if json_output:
+                json_results["portfolio_drawdown"] = pdd
+            else:
+                if pdd:
+                    print(format_drawdown(pdd))
+                else:
+                    print("⚠️ 无法计算组合回撤: 股票持仓不足或历史数据不足")
+                print()
 
     if subcommand in ("correlation", "all"):
         if not json_output: print("⏳ 正在计算相关性矩阵...")
@@ -718,13 +731,14 @@ def cmd_export(args):
 def cmd_history(args):
     """查询历史 K 线"""
     if not args:
-        print("用法: python ibkr_cli.py history SYMBOL [--period '3 M'] [--bar '1 day']")
+        print("用法: python ibkr_cli.py history SYMBOL [--period '3 M'] [--bar '1 day'] [--json]")
         sys.exit(1)
 
     period = "3 M"
     bar_size = "1 day"
-    symbol = args[0].upper()
-    i = 1
+    json_output = False
+    symbols = []
+    i = 0
     while i < len(args):
         if args[i] == "--period" and i + 1 < len(args):
             period = args[i + 1]
@@ -732,22 +746,50 @@ def cmd_history(args):
         elif args[i] == "--bar" and i + 1 < len(args):
             bar_size = args[i + 1]
             i += 2
+        elif args[i] == "--json":
+            json_output = True
+            i += 1
         else:
+            symbols.append(args[i].upper())
             i += 1
 
+    if not symbols:
+        print("❌ 请指定至少一个股票代码")
+        sys.exit(1)
+
+    import json as _json
+
     client = _connect_client()
-    bars = client.get_historical_data(symbol, duration=period, bar_size=bar_size)
-    if bars:
-        print(f"📊 {symbol} 历史 K 线 ({period}, {bar_size})")
-        print("=" * 60)
-        print(f"{'日期':12s} {'开盘':>10s} {'最高':>10s} {'最低':>10s} {'收盘':>10s} {'成交量':>12s}")
-        for bar in bars[-20:]:  # 只显示最近 20 根
-            print(f"{bar['date']:12s} ${bar['open']:>9,.2f} ${bar['high']:>9,.2f} "
-                  f"${bar['low']:>9,.2f} ${bar['close']:>9,.2f} {bar['volume']:>12,}")
-        if len(bars) > 20:
-            print(f"\n  ...共 {len(bars)} 根 K 线，仅展示最近 20 根")
-    else:
-        print(f"⚠️ {symbol}: 未获取到历史数据（股票代码可能无效或数据源暂时不可用）")
+    json_results = {}
+
+    for symbol in symbols:
+        bars = client.get_historical_data(symbol, duration=period, bar_size=bar_size)
+        if json_output:
+            if bars:
+                json_results[symbol] = {
+                    "period": period,
+                    "bar_size": bar_size,
+                    "count": len(bars),
+                    "bars": bars
+                }
+            else:
+                json_results[symbol] = {"error": "未获取到历史数据"}
+        else:
+            if bars:
+                print(f"📊 {symbol} 历史 K 线 ({period}, {bar_size})")
+                print("=" * 60)
+                print(f"{'日期':12s} {'开盘':>10s} {'最高':>10s} {'最低':>10s} {'收盘':>10s} {'成交量':>12s}")
+                for bar in bars[-20:]:  # 只显示最近 20 根
+                    print(f"{bar['date']:12s} ${bar['open']:>9,.2f} ${bar['high']:>9,.2f} "
+                          f"${bar['low']:>9,.2f} ${bar['close']:>9,.2f} {bar['volume']:>12,}")
+                if len(bars) > 20:
+                    print(f"\n  ...共 {len(bars)} 根 K 线，仅展示最近 20 根")
+            else:
+                print(f"⚠️ {symbol}: 未获取到历史数据（股票代码可能无效或数据源暂时不可用）")
+            print()
+
+    if json_output:
+        print(_json.dumps(json_results, ensure_ascii=False, indent=2))
 
     _safe_disconnect(client)
 
@@ -922,6 +964,329 @@ def cmd_screen(args):
     else:
         print(format_screen_results(results, filters, signal))
 
+# ─── 新功能命令 (v3) ───────────────────────────────────────────
+
+def cmd_earnings(args):
+    """财报日历"""
+    from earnings_calendar import (
+        get_earnings_date, get_portfolio_earnings, get_earnings_risk_summary,
+        format_earnings_single, format_portfolio_earnings, to_json_earnings
+    )
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    if clean_args and clean_args[0].upper() != "PORTFOLIO":
+        # 个股模式
+        json_results = {}
+        for symbol in clean_args:
+            symbol = symbol.upper()
+            event = get_earnings_date(symbol)
+            if json_output:
+                json_results[symbol] = event
+            else:
+                if event:
+                    print(format_earnings_single(event))
+                else:
+                    print(f"⚠️ {symbol}: 无法获取财报日期")
+                print()
+
+        if json_output:
+            print(to_json_earnings(json_results))
+    else:
+        # 组合模式
+        client = _connect_client()
+        if not json_output:
+            print("⏳ 正在获取持仓财报日历...")
+        events = get_portfolio_earnings(client)
+
+        if json_output:
+            risk = get_earnings_risk_summary(events)
+            print(to_json_earnings({"events": events, "risk_summary": risk}))
+        else:
+            print(format_portfolio_earnings(events))
+
+        _safe_disconnect(client)
+
+
+def cmd_sizer(args):
+    """仓位计算器"""
+    from position_sizer import calc_position_size, format_position_size, to_json_sizer
+
+    if not args or args[0] in ("-h", "--help"):
+        print("用法: python ibkr_cli.py sizer SYMBOL [--risk 2] [--atr-mult 2] [--json]")
+        print("  --risk N      单笔风险比例 (%, 默认 2)")
+        print("  --atr-mult N  ATR 倍数作为止损距离 (默认 2)")
+        sys.exit(1)
+
+    json_output = "--json" in args
+    risk_pct = 2.0
+    atr_mult = 2.0
+    symbols = []
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--json":
+            i += 1
+        elif args[i] == "--risk" and i + 1 < len(args):
+            risk_pct = float(args[i + 1])
+            i += 2
+        elif args[i] == "--atr-mult" and i + 1 < len(args):
+            atr_mult = float(args[i + 1])
+            i += 2
+        else:
+            symbols.append(args[i].upper())
+            i += 1
+
+    if not symbols:
+        print("❌ 请指定至少一个股票代码")
+        sys.exit(1)
+
+    client = _connect_client()
+    json_results = {}
+
+    for symbol in symbols:
+        if not json_output:
+            print(f"⏳ 正在计算 {symbol} 仓位...")
+        result = calc_position_size(client, symbol, risk_pct=risk_pct, atr_multiplier=atr_mult)
+        if json_output:
+            json_results[symbol] = result
+        else:
+            if result:
+                print(format_position_size(result))
+            else:
+                print(f"⚠️ {symbol}: 无法计算仓位")
+            print()
+
+    if json_output:
+        import json as _json
+        import dataclasses
+        def enc(o):
+            if dataclasses.is_dataclass(o):
+                return dataclasses.asdict(o)
+            return str(o)
+        print(_json.dumps(json_results, default=enc, ensure_ascii=False, indent=2))
+
+    _safe_disconnect(client)
+
+
+def cmd_snapshot(args):
+    """组合快照"""
+    from snapshots import (
+        save_snapshot, load_recent_snapshots, calc_snapshot_performance,
+        format_snapshot_performance, format_snapshot_summary, to_json_snapshots
+    )
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+    subcommand = clean_args[0] if clean_args else "save"
+
+    if subcommand == "save":
+        client = _connect_client()
+        save_snapshot(client)
+        _safe_disconnect(client)
+
+    elif subcommand in ("history", "perf"):
+        days = 30
+        if len(clean_args) > 1:
+            try:
+                days = int(clean_args[1])
+            except ValueError:
+                pass
+
+        snapshots = load_recent_snapshots(days)
+        if not snapshots:
+            print("📸 无历史快照数据")
+            print("  使用 ./ibkr snapshot save 保存当日快照")
+            print("  建议配置 cron 每日自动存档")
+            return
+
+        perf = calc_snapshot_performance(snapshots)
+        if json_output:
+            print(to_json_snapshots(perf or {"error": "数据不足"}))
+        else:
+            print(format_snapshot_performance(perf))
+
+    elif subcommand == "latest":
+        snapshots = load_recent_snapshots(1)
+        if snapshots:
+            if json_output:
+                print(to_json_snapshots(snapshots[-1]))
+            else:
+                print(format_snapshot_summary(snapshots[-1]))
+        else:
+            print("📸 无快照数据")
+
+    else:
+        print("用法: python ibkr_cli.py snapshot [save|history|latest] [--json]")
+        print("  save       保存当日组合快照")
+        print("  history N  查看最近 N 天的表现 (默认 30)")
+        print("  latest     查看最新快照")
+
+
+def cmd_sectors(args):
+    """板块轮动"""
+    from sector_rotation import get_sector_rotation, format_sector_rotation, to_json_sectors
+
+    json_output = "--json" in args
+    period = "1 M"
+
+    for i, a in enumerate(args):
+        if a == "--period" and i + 1 < len(args):
+            period = args[i + 1]
+
+    client = _connect_client()
+    if not json_output:
+        print(f"⏳ 正在分析板块轮动 ({period})...")
+
+    report = get_sector_rotation(client, period)
+
+    if json_output:
+        if report:
+            print(to_json_sectors(report))
+        else:
+            import json as _json
+            print(_json.dumps({"error": "数据不足"}, ensure_ascii=False))
+    else:
+        if report:
+            print(format_sector_rotation(report))
+        else:
+            print("⚠️ 板块轮动分析失败: 数据不足")
+
+    _safe_disconnect(client)
+
+
+def cmd_mtf(args):
+    """多周期共振分析"""
+    from technical_analysis import (
+        analyze_multi_timeframe, format_multi_timeframe, to_json_multi_timeframe
+    )
+
+    if not args:
+        print("用法: python ibkr_cli.py mtf SYMBOL [--json]")
+        sys.exit(1)
+
+    json_output = "--json" in args
+    symbols = [a.upper() for a in args if not a.startswith("--")]
+
+    client = _connect_client()
+    json_results = {}
+
+    for symbol in symbols:
+        if not json_output:
+            print(f"⏳ 正在分析 {symbol} 多周期共振...")
+        mtf = analyze_multi_timeframe(client, symbol)
+        if json_output:
+            json_results[symbol] = mtf
+        else:
+            if mtf:
+                print(format_multi_timeframe(mtf))
+            else:
+                print(f"⚠️ {symbol}: 多周期分析失败")
+            print()
+
+    if json_output:
+        import json as _json
+        import dataclasses
+        def enc(o):
+            if dataclasses.is_dataclass(o):
+                return dataclasses.asdict(o)
+            return str(o)
+        print(_json.dumps(json_results, default=enc, ensure_ascii=False, indent=2))
+
+    _safe_disconnect(client)
+
+
+def cmd_chain(args):
+    """期权链分析"""
+    if not args or args[0] in ("-h", "--help"):
+        print("用法: python ibkr_cli.py chain SYMBOL [--expiry YYYYMMDD] [--range N] [--json]")
+        print("  --expiry    到期日 (不指定则列出所有可用到期日)")
+        print("  --range N   取当前价上下各 N 个行权价 (默认 10)")
+        sys.exit(1)
+
+    json_output = "--json" in args
+    expiry = None
+    strike_range = 10
+    symbol = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--json":
+            i += 1
+        elif args[i] == "--expiry" and i + 1 < len(args):
+            expiry = args[i + 1]
+            i += 2
+        elif args[i] == "--range" and i + 1 < len(args):
+            strike_range = int(args[i + 1])
+            i += 2
+        elif not args[i].startswith("--"):
+            symbol = args[i].upper()
+            i += 1
+        else:
+            i += 1
+
+    if not symbol:
+        print("❌ 请指定股票代码")
+        sys.exit(1)
+
+    client = _connect_client()
+    if not json_output:
+        if expiry:
+            print(f"⏳ 正在获取 {symbol} 期权链 (到期日: {expiry})...")
+        else:
+            print(f"⏳ 正在获取 {symbol} 可用期权到期日...")
+
+    data = client.get_option_chain_data(symbol, expiry=expiry, strike_range=strike_range)
+
+    if json_output:
+        import json as _json
+        print(_json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        if "error" in data:
+            print(f"⚠️ {data['error']}")
+        elif "chain" in data:
+            # 有具体期权链数据
+            print(f"🎯 {symbol} 期权链 (到期日: {data.get('expiry', 'N/A')})")
+            print(f"  当前价: ${data.get('current_price', 0):,.2f}")
+            print(f"  Put/Call Ratio: {data.get('put_call_ratio', 0):.2f}")
+            pcr = data.get("put_call_ratio", 0)
+            if pcr > 1.5:
+                print("  📉 情绪偏悲观 (高 Put 比例)")
+            elif pcr < 0.5:
+                print("  📈 情绪偏乐观 (高 Call 比例)")
+            print()
+
+            # Calls
+            calls = data["chain"].get("calls", [])
+            if calls:
+                print(f"  📈 CALL (看涨)")
+                print(f"  {'行权价':>8s} {'买价':>8s} {'卖价':>8s} {'Delta':>8s} {'IV':>8s} {'OI':>8s}")
+                for c in calls:
+                    print(f"  ${c['strike']:>7,.0f} ${c['bid']:>7.2f} ${c['ask']:>7.2f} "
+                          f"{c['delta']:>+7.4f} {c['implied_vol']:>7.2%} {c['open_interest']:>7,}")
+                print()
+
+            # Puts
+            puts = data["chain"].get("puts", [])
+            if puts:
+                print(f"  📉 PUT (看跌)")
+                print(f"  {'行权价':>8s} {'买价':>8s} {'卖价':>8s} {'Delta':>8s} {'IV':>8s} {'OI':>8s}")
+                for p in puts:
+                    print(f"  ${p['strike']:>7,.0f} ${p['bid']:>7.2f} ${p['ask']:>7.2f} "
+                          f"{p['delta']:>+7.4f} {p['implied_vol']:>7.2%} {p['open_interest']:>7,}")
+        else:
+            # 仅到期日列表
+            expirations = data.get("expirations", [])
+            print(f"📅 {symbol} 可用期权到期日 ({len(expirations)} 个)")
+            for exp in expirations[:20]:
+                print(f"  {exp}")
+            if len(expirations) > 20:
+                print(f"  ...共 {len(expirations)} 个到期日")
+            print(f"\n使用 --expiry YYYYMMDD 查看具体到期日的期权链")
+
+    _safe_disconnect(client)
+
 
 # ─── 主入口 ────────────────────────────────────────────────────
 
@@ -929,14 +1294,20 @@ COMMANDS = {
     "status": ("检查 IB Gateway 连接状态", cmd_status),
     "quote": ("查询实时行情: quote AAPL NVDA", cmd_quote),
     "analyze": ("技术分析: analyze AAPL", cmd_analyze),
+    "mtf": ("多周期共振: mtf AAPL", cmd_mtf),
     "fundamentals": ("基本面查询(IBKR+Finviz): fundamentals AAPL", cmd_fundamentals),
     "ratings": ("分析师评级(Finviz): ratings AAPL", cmd_ratings),
     "insider": ("内部人交易(Finviz): insider AAPL / insider market", cmd_insider),
     "peers": ("同行公司(Finviz): peers AAPL [--quote]", cmd_peers),
     "screen": ("Finviz多维选股: screen --sector Technology --pe 'Under 20'", cmd_screen),
     "history": ("历史 K 线: history AAPL --period '3 M'", cmd_history),
+    "earnings": ("财报日历: earnings AAPL / earnings portfolio", cmd_earnings),
+    "sizer": ("仓位计算: sizer AAPL [--risk 2] [--atr-mult 2]", cmd_sizer),
+    "sectors": ("板块轮动: sectors [--period '1 M']", cmd_sectors),
+    "snapshot": ("组合快照: snapshot [save|history|latest]", cmd_snapshot),
     "portfolio": ("组合分析: portfolio [all|allocation|...]", cmd_portfolio),
     "options": ("期权分析: options [all|calendar|greeks|summary]", cmd_options),
+    "chain": ("期权链: chain AAPL [--expiry 20260620]", cmd_chain),
     "trades": ("交易复盘: trades [all|history|stats]", cmd_trades),
     "scanner": ("IBKR市场扫描: scanner --code TOP_PERC_GAIN", cmd_scanner),
     "watchlist": ("Watchlist: watchlist [list|add|remove] SYMBOL", cmd_watchlist),

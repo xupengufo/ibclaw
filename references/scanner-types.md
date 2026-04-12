@@ -2,6 +2,8 @@
 
 本文档为 AI Agent 调用 `./ibkr scanner` 时的参数组合指引。**统一使用 `--code` 指定英文 scanCode**，不要使用中文预设名（存在 shell 编码兼容性问题）。
 
+> **维护说明**：中文预设名列表的唯一权威来源 (Single Source of Truth) 为 `scripts/scanner_enhanced.py` 中的 `SCAN_PRESETS` 字典。本文档仅作为 `--code` 参数的 Agent 使用指引。如有不一致，以代码为准。
+
 ## 1. 动态命令行接口
 
 ```bash

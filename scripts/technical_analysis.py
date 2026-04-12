@@ -74,6 +74,14 @@ class VolumeAnalysis:
 
 
 @dataclass
+class ATRData:
+    """ATR (Average True Range) — 真实波幅均值，衡量价格波动性"""
+    atr_14: float = 0.0             # 14 日 ATR
+    atr_pct: float = 0.0            # ATR 占当前价百分比（波动率代理）
+    signal: str = ""                # "高波动" / "中等波动" / "低波动"
+
+
+@dataclass
 class TechnicalSummary:
     """综合技术分析"""
     symbol: str
@@ -84,6 +92,7 @@ class TechnicalSummary:
     bollinger: BollingerBands
     support_resistance: SupportResistance
     volume: VolumeAnalysis
+    atr: ATRData = field(default_factory=ATRData)
     overall_signal: str = ""    # "强烈看多" / "看多" / "中性" / "看空" / "强烈看空"
     score: int = 0              # -100 ~ +100 综合评分
     key_observations: List[str] = field(default_factory=list)
@@ -354,6 +363,46 @@ def calc_volume_analysis(bars: List[dict]) -> VolumeAnalysis:
     )
 
 
+def calc_atr(bars: List[dict], period: int = 14) -> ATRData:
+    """
+    计算 ATR (Average True Range)
+    ATR = 14日 True Range 的 Wilder 平滑平均
+    True Range = max(High-Low, |High-PrevClose|, |Low-PrevClose|)
+    """
+    if len(bars) < period + 1:
+        return ATRData()
+
+    true_ranges = []
+    for i in range(1, len(bars)):
+        high = bars[i]["high"]
+        low = bars[i]["low"]
+        prev_close = bars[i - 1]["close"]
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        true_ranges.append(tr)
+
+    # Wilder's smoothing
+    atr = sum(true_ranges[:period]) / period
+    for tr in true_ranges[period:]:
+        atr = (atr * (period - 1) + tr) / period
+
+    current_price = bars[-1]["close"]
+    atr_pct = (atr / current_price * 100) if current_price > 0 else 0
+
+    # 波动性判断
+    if atr_pct >= 4.0:
+        signal = "🔴 高波动"
+    elif atr_pct >= 2.0:
+        signal = "🟡 中等波动"
+    else:
+        signal = "🟢 低波动"
+
+    return ATRData(
+        atr_14=round(atr, 4),
+        atr_pct=round(atr_pct, 2),
+        signal=signal
+    )
+
+
 # ─── 综合分析 ─────────────────────────────────────────────────
 
 def calc_technical_score(ma: MovingAverages, rsi: RSIData, macd: MACDData,
@@ -473,6 +522,7 @@ def analyze_symbol(client, symbol: str, period: str = "1 Y", bar_size: str = "1 
     bb = calc_bollinger_bands(closes)
     sr = calc_support_resistance(bars)
     vol = calc_volume_analysis(bars)
+    atr = calc_atr(bars)
 
     score, signal, observations = calc_technical_score(ma, rsi, macd, bb, vol, current)
 
@@ -485,10 +535,148 @@ def analyze_symbol(client, symbol: str, period: str = "1 Y", bar_size: str = "1 
         bollinger=bb,
         support_resistance=sr,
         volume=vol,
+        atr=atr,
         overall_signal=signal,
         score=score,
         key_observations=observations
     )
+
+
+# ─── 多周期共振分析 ───────────────────────────────────────────
+
+@dataclass
+class MultiTimeframeSummary:
+    """多周期技术共振分析"""
+    symbol: str
+    current_price: float
+    # 各周期评分 (-100 ~ +100)
+    weekly_score: int
+    weekly_signal: str
+    weekly_rsi: float
+    daily_score: int
+    daily_signal: str
+    daily_rsi: float
+    hourly_score: int
+    hourly_signal: str
+    hourly_rsi: float
+    # 共振度
+    confluence_score: int       # 0 ~ 100，越高越一致
+    confluence_direction: str   # "多头共振" / "空头共振" / "多空分歧"
+    confluence_detail: str      # 详细说明
+
+
+def analyze_multi_timeframe(client, symbol: str) -> Optional[MultiTimeframeSummary]:
+    """
+    多周期共振分析：同时计算周线 + 日线 + 60分钟线的技术指标，评估信号一致性。
+    """
+    # 三个周期的参数
+    timeframes = [
+        ("weekly", "1 Y", "1 week"),
+        ("daily", "6 M", "1 day"),
+        ("hourly", "5 D", "1 hour"),
+    ]
+
+    results = {}
+    for tf_name, duration, bar_size in timeframes:
+        try:
+            bars = client.get_historical_data(symbol, duration=duration, bar_size=bar_size)
+            if bars and len(bars) >= 20:
+                closes = [b["close"] for b in bars]
+                ma = calc_moving_averages(closes)
+                rsi = calc_rsi(closes)
+                macd = calc_macd(closes)
+                bb = calc_bollinger_bands(closes)
+                vol = calc_volume_analysis(bars)
+                current = closes[-1]
+                score, signal, _ = calc_technical_score(ma, rsi, macd, bb, vol, current)
+                results[tf_name] = {
+                    "score": score, "signal": signal,
+                    "rsi": round(rsi.rsi_14, 1), "price": current
+                }
+            else:
+                results[tf_name] = {"score": 0, "signal": "数据不足", "rsi": 50.0, "price": 0}
+        except Exception:
+            results[tf_name] = {"score": 0, "signal": "获取失败", "rsi": 50.0, "price": 0}
+
+    w = results["weekly"]
+    d = results["daily"]
+    h = results["hourly"]
+
+    current_price = d["price"] or h["price"] or w["price"]
+
+    # 计算共振度：三个周期方向越一致，共振度越高
+    scores = [w["score"], d["score"], h["score"]]
+    all_bullish = all(s > 0 for s in scores)
+    all_bearish = all(s < 0 for s in scores)
+    signs = [1 if s > 0 else (-1 if s < 0 else 0) for s in scores]
+
+    if all_bullish:
+        confluence = min(100, int(sum(abs(s) for s in scores) / 3 * 1.5))
+        direction = "📈 多头共振"
+        detail = "三个周期信号一致看多，趋势确认度高"
+    elif all_bearish:
+        confluence = min(100, int(sum(abs(s) for s in scores) / 3 * 1.5))
+        direction = "📉 空头共振"
+        detail = "三个周期信号一致看空，下行压力贯穿"
+    elif signs.count(0) >= 2:
+        confluence = 20
+        direction = "⚪ 方向不明"
+        detail = "多数周期处于中性区间，观望为主"
+    else:
+        # 部分一致
+        agreement = sum(1 for a, b in [(signs[0], signs[1]), (signs[1], signs[2]), (signs[0], signs[2])] if a == b and a != 0)
+        confluence = 30 + agreement * 20
+        if d["score"] > 0 and w["score"] > 0:
+            direction = "🔵 偏多分歧"
+            detail = "日线周线偏多但短线信号不一致，可等回调确认"
+        elif d["score"] < 0 and w["score"] < 0:
+            direction = "🟠 偏空分歧"
+            detail = "日线周线偏空但短线有反弹迹象，谨慎观望"
+        else:
+            direction = "🟡 多空分歧"
+            detail = "各周期信号矛盾，不宜重仓"
+
+    return MultiTimeframeSummary(
+        symbol=symbol,
+        current_price=current_price,
+        weekly_score=w["score"],
+        weekly_signal=w["signal"],
+        weekly_rsi=w["rsi"],
+        daily_score=d["score"],
+        daily_signal=d["signal"],
+        daily_rsi=d["rsi"],
+        hourly_score=h["score"],
+        hourly_signal=h["signal"],
+        hourly_rsi=h["rsi"],
+        confluence_score=confluence,
+        confluence_direction=direction,
+        confluence_detail=detail,
+    )
+
+
+def format_multi_timeframe(mtf: MultiTimeframeSummary) -> str:
+    """格式化多周期共振报告"""
+    if not mtf:
+        return "⚠️ 多周期分析失败"
+
+    lines = [
+        f"📊 {mtf.symbol} 多周期共振分析  |  ${mtf.current_price:,.2f}",
+        "=" * 55,
+        f"  🎯 共振度: {mtf.confluence_score}/100  {mtf.confluence_direction}",
+        f"  💡 {mtf.confluence_detail}",
+        "",
+        f"  {'周期':8s} {'评分':>6s} {'信号':12s} {'RSI':>6s}",
+        f"  {'周线':8s} {mtf.weekly_score:>+5d}  {mtf.weekly_signal:12s} {mtf.weekly_rsi:>5.1f}",
+        f"  {'日线':8s} {mtf.daily_score:>+5d}  {mtf.daily_signal:12s} {mtf.daily_rsi:>5.1f}",
+        f"  {'60分钟':8s} {mtf.hourly_score:>+5d}  {mtf.hourly_signal:12s} {mtf.hourly_rsi:>5.1f}",
+    ]
+    return "\n".join(lines)
+
+
+def to_json_multi_timeframe(mtf: MultiTimeframeSummary) -> str:
+    """JSON 输出"""
+    data = dataclasses.asdict(mtf)
+    return json.dumps(data, ensure_ascii=False, indent=2)
 
 
 def analyze_portfolio(client) -> List[TechnicalSummary]:
@@ -577,6 +765,11 @@ def format_technical_summary(ts: TechnicalSummary) -> str:
                  f"10日均量={ts.volume.avg_volume_10d:,.0f}  "
                  f"量比={ts.volume.volume_ratio:.2f}x  {ts.volume.volume_trend}")
 
+    # ATR
+    if ts.atr.atr_14 > 0:
+        lines.append(f"  📐 ATR(14): ${ts.atr.atr_14:,.2f}  "
+                     f"占价比={ts.atr.atr_pct:.2f}%  {ts.atr.signal}")
+
     # 支撑阻力
     sr = ts.support_resistance
     if sr.resistance_levels:
@@ -632,6 +825,7 @@ def to_json_summary(ts: TechnicalSummary) -> str:
     data['macd'].pop('cross_signal', None)
     data['bollinger'].pop('position', None)
     data['volume'].pop('volume_trend', None)
+    data['atr'].pop('signal', None)
     
     return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -650,6 +844,7 @@ def format_portfolio_json(summaries: List[TechnicalSummary]) -> str:
         item['macd'].pop('cross_signal', None)
         item['bollinger'].pop('position', None)
         item['volume'].pop('volume_trend', None)
+        item['atr'].pop('signal', None)
         data.append(item)
     return json.dumps(data, ensure_ascii=False, indent=2)
 

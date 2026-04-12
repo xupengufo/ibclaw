@@ -67,6 +67,10 @@ copy_runtime_scripts() {
   cp "$REPO_ROOT/scripts/technical_analysis.py" "$TRADING_DIR/technical_analysis.py"
   cp "$REPO_ROOT/scripts/finviz_data.py" "$TRADING_DIR/finviz_data.py"
   cp "$REPO_ROOT/scripts/finviz_screener.py" "$TRADING_DIR/finviz_screener.py"
+  cp "$REPO_ROOT/scripts/earnings_calendar.py" "$TRADING_DIR/earnings_calendar.py"
+  cp "$REPO_ROOT/scripts/position_sizer.py" "$TRADING_DIR/position_sizer.py"
+  cp "$REPO_ROOT/scripts/snapshots.py" "$TRADING_DIR/snapshots.py"
+  cp "$REPO_ROOT/scripts/sector_rotation.py" "$TRADING_DIR/sector_rotation.py"
   cp "$REPO_ROOT/scripts/ibkr_cli.py" "$TRADING_DIR/ibkr_cli.py"
   chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py" "$TRADING_DIR/ibkr_cli.py"
 }
@@ -138,9 +142,17 @@ source venv/bin/activate
 python ibkr_cli.py "$@"
 EOF
 
+  cat > "$TRADING_DIR/run-snapshot.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+source venv/bin/activate
+python snapshots.py
+EOF
+
   chmod +x "$TRADING_DIR/run-readonly.sh" "$TRADING_DIR/run-keepalive.sh" \
            "$TRADING_DIR/run-alerts.sh" "$TRADING_DIR/run-report.sh" \
-           "$TRADING_DIR/ibkr"
+           "$TRADING_DIR/run-snapshot.sh" "$TRADING_DIR/ibkr"
 }
 
 main() {

@@ -11,6 +11,13 @@ from datetime import datetime
 from typing import Optional
 
 
+def _get_export_dir() -> str:
+    """获取导出目录（~/trading/exports/），不存在则自动创建"""
+    export_dir = os.path.join(os.path.expanduser("~"), "trading", "exports")
+    os.makedirs(export_dir, exist_ok=True)
+    return export_dir
+
+
 # ─── CSV 导出 ─────────────────────────────────────────────────
 
 def export_portfolio_csv(client, filepath: str = None) -> str:
@@ -20,7 +27,7 @@ def export_portfolio_csv(client, filepath: str = None) -> str:
     """
     if not filepath:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(os.path.expanduser("~"), f"ibkr_portfolio_{timestamp}.csv")
+        filepath = os.path.join(_get_export_dir(), f"ibkr_portfolio_{timestamp}.csv")
 
     positions = client.get_positions()
     balance = client.get_balance()
@@ -80,7 +87,7 @@ def export_allocation_csv(client, filepath: str = None) -> str:
     """
     if not filepath:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(os.path.expanduser("~"), f"ibkr_allocation_{timestamp}.csv")
+        filepath = os.path.join(_get_export_dir(), f"ibkr_allocation_{timestamp}.csv")
 
     # 避免循环导入
     import sys
@@ -134,7 +141,7 @@ def generate_investment_report(client, filepath: str = None) -> str:
     """
     if not filepath:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(os.path.expanduser("~"), f"ibkr_report_{timestamp}.txt")
+        filepath = os.path.join(_get_export_dir(), f"ibkr_report_{timestamp}.txt")
 
     import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
