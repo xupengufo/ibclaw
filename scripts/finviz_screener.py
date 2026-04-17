@@ -76,6 +76,35 @@ def _get_filter_options(filter_name: str) -> List[str]:
     return []
 
 
+def _fuzzy_match_option(filter_name: str, user_val: str) -> str:
+    """
+    模糊匹配选项
+    例如: 将 '+Large' 匹配为 '+Large (over $10bln)'
+    """
+    options = _get_filter_options(filter_name)
+    if not options:
+        return user_val
+
+    user_val_lower = user_val.lower().strip()
+
+    # 1. 完全匹配
+    for opt in options:
+        if opt.lower() == user_val_lower:
+            return opt
+
+    # 2. 前缀匹配 (解决 +Large 问题)
+    for opt in options:
+        if opt.lower().startswith(user_val_lower):
+            return opt
+
+    # 3. 包含匹配
+    for opt in options:
+        if user_val_lower in opt.lower():
+            return opt
+
+    return user_val
+
+
 def run_finviz_screen(
     filters: Optional[Dict[str, str]] = None,
     signal: str = "",
@@ -150,7 +179,10 @@ def parse_screen_args(args: list) -> tuple:
             return None, None, None, None  # 特殊标记
         elif args[i] in CLI_FILTER_MAP and i + 1 < len(args):
             finviz_key = CLI_FILTER_MAP[args[i]]
-            filters[finviz_key] = args[i + 1]
+            raw_val = args[i + 1]
+            # 进行模糊匹配获取完整的 Finviz key string
+            matched_val = _fuzzy_match_option(finviz_key, raw_val)
+            filters[finviz_key] = matched_val
             i += 2
         else:
             i += 1
