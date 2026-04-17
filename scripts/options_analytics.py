@@ -248,6 +248,101 @@ def get_portfolio_greeks_summary(client) -> Optional[PortfolioGreeksSummary]:
         net_direction=direction
     )
 
+def screen_seller_options(client, symbol: str, opt_type: str = "P", min_dte: int = 7, max_dte: int = 45, min_delta: float = 0.1, max_delta: float = 0.35) -> dict:
+    """
+    期权卖方高阶筛选 (Cash-Secured Puts / Covered Calls)
+    """
+    base_chain = client.get_option_chain_data(symbol)
+    if "error" in base_chain:
+        return base_chain
+        
+    expirations = base_chain.get("expirations", [])
+    if not expirations:
+        return {"error": "未找到期权日期数据"}
+        
+    current_price = 0
+    valid_expirations = []
+    
+    for exp in expirations:
+        dte = _calc_days_to_expiry(exp)
+        if min_dte <= dte <= max_dte:
+            valid_expirations.append((exp, dte))
+            
+    if not valid_expirations:
+        return {"error": f"没有在 DTE {min_dte}-{max_dte} 天数区间的期权链"}
+        
+    results = []
+    for exp, dte in valid_expirations:
+        # 获取整条链，放大 strike range 获取 OTM 合约
+        chain_data = client.get_option_chain_data(symbol, expiry=exp, strike_range=30)
+        if "error" in chain_data:
+            continue
+            
+        current_price = chain_data.get("current_price", 0)
+        if current_price <= 0:
+            continue
+            
+        target_list = chain_data.get("puts" if opt_type == "P" else "calls", [])
+        
+        for opt in target_list:
+            delta = opt.get("delta", 0)
+            abs_delta = abs(delta)
+            
+            # 卖方过滤 OTM + delta 范围
+            if opt_type == "P" and opt.get("strike", 0) >= current_price:
+                continue
+            if opt_type == "C" and opt.get("strike", 0) <= current_price:
+                continue
+                
+            if min_delta <= abs_delta <= max_delta:
+                bid = opt.get("bid", 0)
+                if bid <= 0.05:  # 过滤毫无流动性的深度 OTM
+                    continue
+                
+                strike = opt.get("strike", 0)
+                margin = strike if opt_type == "P" else current_price
+                if margin <= 0:
+                    continue
+                    
+                yield_pct = (bid / margin) * 100
+                ann_yield = yield_pct * (365 / dte) if dte > 0 else 0
+                theta = opt.get("theta", 0)
+                theta_decay_usd = abs(theta) * 100
+                
+                if opt_type == "P":
+                    cushion = ((current_price - strike) / current_price) * 100
+                else:
+                    cushion = ((strike - current_price) / current_price) * 100
+                    
+                results.append({
+                    "symbol": symbol,
+                    "strike": strike,
+                    "expiry": exp,
+                    "dte": dte,
+                    "type": opt_type,
+                    "bid": bid,
+                    "ask": opt.get("ask", 0),
+                    "volume": opt.get("volume", 0),
+                    "oi": opt.get("open_interest", 0),
+                    "iv": opt.get("implied_vol", 0),
+                    "delta": delta,
+                    "gamma": opt.get("gamma", 0),
+                    "theta": theta,
+                    "theta_decay": theta_decay_usd,
+                    "yield_pct": yield_pct,
+                    "annualized_yield": ann_yield,
+                    "cushion": cushion,
+                    "itm_prob": abs_delta * 100,
+                    "margin": margin
+                })
+                
+    results.sort(key=lambda x: x["annualized_yield"], reverse=True)
+    return {
+        "symbol": symbol,
+        "current_price": current_price,
+        "results": results
+    }
+
 
 # ─── 格式化输出 ───────────────────────────────────────────────
 
@@ -299,6 +394,37 @@ def format_greeks_summary(summary: PortfolioGreeksSummary) -> str:
         f"  总 Theta:  {summary.total_theta:+.2f}/天 (每天时间价值{'损耗' if summary.total_theta < 0 else '收益'}: ${abs(summary.total_theta):.2f})\n"
         f"  总 Vega:   {summary.total_vega:+.2f}"
     )
+
+
+def format_seller_screener_results(data: dict, top_n: int = 15) -> str:
+    if "error" in data:
+        return f"⚠️ 筛选失败: {data['error']}"
+        
+    symbol = data.get("symbol", "")
+    current_price = data.get("current_price", 0)
+    results = data.get("results", [])
+    
+    if not results:
+        return f"ℹ️ {symbol} (现价 ${current_price:.2f}): 未找到符合条件的期权卖方合约。"
+        
+    lines = [
+        f"🎯 {symbol} 期权卖方机会扫描 (现价: ${current_price:.2f})",
+        "=" * 110,
+        f"{'到期日':<10s} {'天数':>4s} {'类型':<4s} {'行权价':>8s} | {'权利金':>7s} {'年化收益':>8s} | {'安全垫':>8s} {'胜率估算':>8s} | {'日Theta':>8s} {'IV':>6s}"
+    ]
+    
+    for r in results[:top_n]:
+        lines.append(
+            f"{r['expiry']:<10s} {r['dte']:>4d} {r['type']:<4s} ${r['strike']:>7.2f} | "
+            f"${r['bid']:>6.2f} {r['annualized_yield']:>7.1f}% | "
+            f"{r['cushion']:>7.1f}% {r['itm_prob']:>7.1f}% | "
+            f"${r['theta_decay']:>7.2f} {r['iv']:>5.0%}"
+        )
+        
+    if len(results) > top_n:
+        lines.append(f"... 还有 {len(results) - top_n} 个符合条件的合约未显示。")
+        
+    return "\n".join(lines)
 
 
 # ─── 独立运行入口 ─────────────────────────────────────────────

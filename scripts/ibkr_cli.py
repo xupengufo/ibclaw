@@ -13,7 +13,7 @@ IBKR CLI 统一入口
     python ibkr_cli.py peers AAPL
     python ibkr_cli.py screen --sector Technology --pe "Under 20" --json
     python ibkr_cli.py portfolio [allocation|concentration|beta|benchmark|attribution|drawdown|all]
-    python ibkr_cli.py options [calendar|greeks|summary|all]
+    python ibkr_cli.py options [calendar|greeks|summary|seller|all]
     python ibkr_cli.py trades [history|stats|all]
     python ibkr_cli.py scanner --code TOP_PERC_GAIN [--size 10]
     python ibkr_cli.py watchlist [list|add|remove] [SYMBOL] [--buy PRICE] [--sell PRICE] [--notes TEXT]
@@ -390,7 +390,8 @@ def cmd_options(args):
     from options_analytics import (
         get_expiration_calendar, get_portfolio_greeks_summary,
         get_option_greeks, format_expiration_calendar,
-        format_greeks_summary, format_option_greeks, to_json_options
+        format_greeks_summary, format_option_greeks, to_json_options,
+        screen_seller_options, format_seller_screener_results
     )
 
     json_results = {}
@@ -435,6 +436,55 @@ def cmd_options(args):
                 print(format_greeks_summary(summary))
             else:
                 print("ℹ️ 无期权持仓，跳过 Greeks 汇总")
+            print()
+
+    if subcommand == "seller":
+        if len(args) < 2:
+            print("用法: python ibkr_cli.py options seller SYMBOL [--type P/C] [--dte min-max] [--delta min-max]")
+            _safe_disconnect(client)
+            sys.exit(1)
+            
+        symbol = args[1].upper()
+        opt_type = "P"
+        min_dte = 7
+        max_dte = 45
+        min_delta = 0.1
+        max_delta = 0.35
+        
+        i = 2
+        while i < len(args):
+            if args[i] == "--type" and i + 1 < len(args):
+                opt_type = args[i+1].upper()
+                i += 2
+            elif args[i] == "--dte" and i + 1 < len(args):
+                parts = args[i+1].split("-")
+                min_dte = int(parts[0])
+                if len(parts) > 1:
+                    max_dte = int(parts[1])
+                else:
+                    max_dte = min_dte
+                i += 2
+            elif args[i] == "--delta" and i + 1 < len(args):
+                parts = args[i+1].split("-")
+                min_delta = float(parts[0])
+                if len(parts) > 1:
+                    max_delta = float(parts[1])
+                else:
+                    max_delta = min_delta
+                i += 2
+            else:
+                i += 1
+                
+        if not json_output: print(f"⏳ 正在扫描 {symbol} 期权卖方机会 (Type={opt_type}, DTE={min_dte}-{max_dte}, Delta={min_delta}-{max_delta})...")
+        screener_res = screen_seller_options(
+            client, symbol, opt_type=opt_type, 
+            min_dte=min_dte, max_dte=max_dte,
+            min_delta=min_delta, max_delta=max_delta
+        )
+        if json_output:
+            json_results["seller_screener"] = screener_res
+        else:
+            print(format_seller_screener_results(screener_res))
             print()
 
     if json_output:

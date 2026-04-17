@@ -61,7 +61,6 @@ copy_runtime_scripts() {
   cp "$REPO_ROOT/scripts/portfolio_analytics.py" "$TRADING_DIR/portfolio_analytics.py"
   cp "$REPO_ROOT/scripts/options_analytics.py" "$TRADING_DIR/options_analytics.py"
   cp "$REPO_ROOT/scripts/trade_review.py" "$TRADING_DIR/trade_review.py"
-  cp "$REPO_ROOT/scripts/alerts.py" "$TRADING_DIR/alerts.py"
   cp "$REPO_ROOT/scripts/scanner_enhanced.py" "$TRADING_DIR/scanner_enhanced.py"
   cp "$REPO_ROOT/scripts/export.py" "$TRADING_DIR/export.py"
   cp "$REPO_ROOT/scripts/technical_analysis.py" "$TRADING_DIR/technical_analysis.py"
@@ -87,15 +86,9 @@ IB_HOST=127.0.0.1
 IB_PORT=4001
 IB_CLIENT_ID=1
 
-# Optional: Telegram alerting for keepalive.py and alerts.py
+# Optional: Telegram alerting for keepalive.py
 # TG_BOT_TOKEN=
 # TG_CHAT_ID=
-
-# Optional: Alert thresholds (alerts.py)
-# ALERT_DROP_PCT=5
-# ALERT_SURGE_PCT=10
-# ALERT_CONC_PCT=25
-# ALERT_EXPIRY_DAYS=7
 EOF
   log "Created $env_file"
 }
@@ -117,13 +110,7 @@ source venv/bin/activate
 python keepalive.py
 EOF
 
-  cat > "$TRADING_DIR/run-alerts.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-source venv/bin/activate
-python alerts.py
-EOF
+
 
   cat > "$TRADING_DIR/run-report.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -151,8 +138,7 @@ python snapshots.py
 EOF
 
   chmod +x "$TRADING_DIR/run-readonly.sh" "$TRADING_DIR/run-keepalive.sh" \
-           "$TRADING_DIR/run-alerts.sh" "$TRADING_DIR/run-report.sh" \
-           "$TRADING_DIR/run-snapshot.sh" "$TRADING_DIR/ibkr"
+           "$TRADING_DIR/run-report.sh" "$TRADING_DIR/run-snapshot.sh" "$TRADING_DIR/ibkr"
 }
 
 main() {
@@ -207,9 +193,7 @@ Next steps:
 3) Run: cd "$TRADING_DIR" && ./run-readonly.sh
 4) Optional health check cron:
    */5 * * * * cd $TRADING_DIR && ./run-keepalive.sh >> $TRADING_DIR/keepalive.log 2>&1
-5) Optional investment alerts cron (trading hours):
-   0 9-16 * * 1-5 cd $TRADING_DIR && ./run-alerts.sh >> $TRADING_DIR/alerts.log 2>&1
-6) Generate investment report:
+5) Generate investment report:
    cd "$TRADING_DIR" && ./run-report.sh
 ========================================
 EOF
