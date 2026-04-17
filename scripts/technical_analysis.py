@@ -542,6 +542,59 @@ def analyze_symbol(client, symbol: str, period: str = "1 Y", bar_size: str = "1 
     )
 
 
+def analyze_symbols_batch(client, symbols: List[str], period: str = "1 Y", bar_size: str = "1 day") -> Dict[str, Optional[TechnicalSummary]]:
+    """
+    批量并发执行技术分析
+    直接利用 client.get_historical_data_batch 以发挥异步效能
+    """
+    if not symbols:
+        return {}
+        
+    batch_bars = getattr(client, "get_historical_data_batch", None)
+    if batch_bars:
+        all_bars = client.get_historical_data_batch(symbols, duration=period, bar_size=bar_size)
+    else:
+        # Fallback to sequential if client is outdated
+        all_bars = {sym: client.get_historical_data(sym, duration=period, bar_size=bar_size) for sym in symbols}
+        
+    results = {}
+    for symbol in symbols:
+        bars = all_bars.get(symbol)
+        if not bars or len(bars) < 30:
+            results[symbol] = None
+            continue
+            
+        closes = [b["close"] for b in bars]
+        current = closes[-1]
+
+        ma = calc_moving_averages(closes)
+        rsi = calc_rsi(closes)
+        macd = calc_macd(closes)
+        bb = calc_bollinger_bands(closes)
+        sr = calc_support_resistance(bars)
+        vol = calc_volume_analysis(bars)
+        atr = calc_atr(bars)
+
+        score, signal, observations = calc_technical_score(ma, rsi, macd, bb, vol, current)
+
+        results[symbol] = TechnicalSummary(
+            symbol=symbol,
+            current_price=current,
+            ma=ma,
+            rsi=rsi,
+            macd=macd,
+            bollinger=bb,
+            support_resistance=sr,
+            volume=vol,
+            atr=atr,
+            overall_signal=signal,
+            score=score,
+            key_observations=observations
+        )
+    return results
+
+
+
 # ─── 多周期共振分析 ───────────────────────────────────────────
 
 @dataclass

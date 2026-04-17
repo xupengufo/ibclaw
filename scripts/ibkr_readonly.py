@@ -470,6 +470,60 @@ class IBKRReadOnlyClient:
             print(f"❌ 获取历史数据失败: {e}")
             return []
 
+    def get_historical_data_batch(self, symbols: List[str], duration: str = "3 M", bar_size: str = "1 day") -> Dict[str, List[dict]]:
+        """
+        批量并发获取历史 K 线数据
+        利用 ib_async 的全异步能力加速批量分析
+        """
+        import asyncio
+        results = {}
+        
+        async def fetch_one(symbol):
+            # IBKR API 对单秒并发有限制(pacing violations)，稍微打散请求避免超时断连
+            await asyncio.sleep(random.uniform(0.01, 0.1))
+            contract = Stock(symbol, 'SMART', 'USD')
+            try:
+                qualified = await self.ib.qualifyContractsAsync(contract)
+                if not qualified:
+                    return symbol, []
+                bars = await self.ib.reqHistoricalDataAsync(
+                    qualified[0],
+                    endDateTime='',
+                    durationStr=duration,
+                    barSizeSetting=bar_size,
+                    whatToShow='TRADES',
+                    useRTH=True
+                )
+                formatted = [
+                    {
+                        "date": str(bar.date),
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume
+                    }
+                    for bar in bars
+                ]
+                return symbol, formatted
+            except Exception as e:
+                # 忽略因数据不存在引发的正常异常
+                return symbol, []
+
+        async def fetch_all():
+            tasks = [fetch_one(sym) for sym in symbols]
+            return await asyncio.gather(*tasks)
+
+        if not symbols:
+            return {}
+
+        batch_results = self.ib.run(fetch_all())
+        for sym, bars in batch_results:
+            results[sym] = bars
+            
+        return results
+
+
     def run_scanner(self, scan_type: str = "TOP_PERC_GAIN", size: int = 10) -> List[dict]:
         """
         全市场智能扫描

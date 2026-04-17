@@ -27,9 +27,41 @@ IBKR CLI 统一入口
 import os
 import sys
 import traceback
+import json
+import time
 
 # 确保能找到同目录的模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ─── 全局 JSON 旗标与防污染劫持 ──────────────────────────────────────────────
+IS_JSON_MODE = "--json" in sys.argv
+ORIGINAL_STDOUT = sys.stdout
+
+if IS_JSON_MODE:
+    # 彻底劫持常规的 print 到 stderr，防止 `⏳ 正在分析...` 等噪音破坏 JSON 管道
+    sys.stdout = sys.stderr
+
+def print_cli(*args, **kwargs):
+    """
+    终端输出专用打印，如果在 JSON 模式下则不会被打印到标准输出
+    但上面 sys.stdout = sys.stderr 已经做了拦截，这里主要是语义化的保留
+    """
+    print(*args, **kwargs)
+
+def print_json_resp(command: str, data: dict, status: str = "success"):
+    """专用的干净 JSON 输出通道，直通原生 stdout"""
+    if not IS_JSON_MODE:
+        return
+    envelope = {
+        "status": status,
+        "command": command,
+        "timestamp": int(time.time()),
+        "data": data if status == "success" else None,
+        "error": data if status != "success" else None,
+    }
+    ORIGINAL_STDOUT.write(json.dumps(envelope, ensure_ascii=False, indent=2, default=str) + "\n")
+    ORIGINAL_STDOUT.flush()
+# ──────────────────────────────────────────────────────────────────────────
 
 
 def _connect_client():
@@ -38,16 +70,18 @@ def _connect_client():
 
     client = IBKRReadOnlyClient()
     if not client.connect():
-        print("❌ 无法连接 IB Gateway。")
-        print("   诊断信息:")
-        print(f"   • 目标地址: {client.host}:{client.port}")
-        print(f"   • Client ID: {client.client_id}")
-        print("   可能原因:")
-        print("   1. IB Gateway 未启动（桌面上看不到 IB Gateway 窗口）")
-        print("   2. IB Gateway 未登录（需要手机 2FA 确认）")
-        print("   3. API Settings 中未启用 Socket Clients")
-        print(f"   4. 端口不是 {client.port}（检查 API Settings）")
-        print("   5. Trusted IPs 中未包含 127.0.0.1")
+        print_cli("❌ 无法连接 IB Gateway。")
+        print_cli("   诊断信息:")
+        print_cli(f"   • 目标地址: {client.host}:{client.port}")
+        print_cli(f"   • Client ID: {client.client_id}")
+        print_cli("   可能原因:")
+        print_cli("   1. IB Gateway 未启动（桌面上看不到 IB Gateway 窗口）")
+        print_cli("   2. IB Gateway 未登录（需要手机 2FA 确认）")
+        print_cli("   3. API Settings 中未启用 Socket Clients")
+        print_cli(f"   4. 端口不是 {client.port}（检查 API Settings）")
+        print_cli("   5. Trusted IPs 中未包含 127.0.0.1")
+        if IS_JSON_MODE:
+            print_json_resp("connect", {"message": "无法连接 IB Gateway"}, "error")
         sys.exit(1)
 
     return client
@@ -112,7 +146,7 @@ def cmd_quote(args):
         if not symbols:
             if json_output:
                 import json
-                print(json.dumps({"error": "未指定股票，且未找到股票持仓"}))
+                print_json_resp("quote", {"error": "未指定股票，且未找到股票持仓"})
             else:
                 print("⚠️ 未指定股票代码，且当前无股票持仓。用法: python ibkr_cli.py quote SYMBOL")
             _safe_disconnect(client)
@@ -140,7 +174,7 @@ def cmd_quote(args):
 
     if json_output:
         import json
-        print(json.dumps(json_results, ensure_ascii=False, indent=2))
+        print_json_resp("quote", json_results)
 
     _safe_disconnect(client)
 
@@ -175,25 +209,28 @@ def cmd_analyze(args):
         sys.exit(1)
 
     client = _connect_client()
-    from technical_analysis import analyze_symbol, format_technical_summary, to_json_summary
+    from technical_analysis import analyze_symbols_batch, format_technical_summary
+    import dataclasses
 
-    for symbol in symbols:
-        if not json_output:
-            print(f"⏳ 正在分析 {symbol}...")
-        result = analyze_symbol(client, symbol, period=period, bar_size=bar_size)
-        if result:
-            if json_output:
-                print(to_json_summary(result))
+    print_cli(f"⏳ 正在并发分析 {len(symbols)} 只股票技术面...")
+    results = analyze_symbols_batch(client, symbols, period=period, bar_size=bar_size)
+    
+    if json_output:
+        json_results = {}
+        for sym, result in results.items():
+            if result:
+                json_results[sym] = dataclasses.asdict(result)
             else:
-                print(format_technical_summary(result))
-        else:
-            if json_output:
-                import json
-                print(json.dumps({"error": f"{symbol} 技术分析失败: 历史数据不足或股票代码无效"}))
+                json_results[sym] = {"error": "历史数据不足或无效代码"}
+        print_json_resp("analyze", json_results)
+    else:
+        for sym in symbols:
+            result = results.get(sym)
+            if result:
+                print_cli(format_technical_summary(result))
             else:
-                print(f"⚠️ {symbol} 技术分析失败: 历史数据不足（至少需要 30 根 K 线）或股票代码无效")
-        if not json_output:
-            print()
+                print_cli(f"⚠️ {sym} 技术分析失败: 历史数据不足（至少需要 30 根 K 线）或股票代码无效")
+            print_cli()
 
     _safe_disconnect(client)
 
@@ -208,17 +245,20 @@ def cmd_fundamentals(args):
     symbols = [a for a in args if a != "--json"]
 
     client = _connect_client()
-    from finviz_data import get_finviz_fundamentals, format_finviz_fundamentals
+    from finviz_data import get_finviz_fundamentals_batch, format_finviz_fundamentals
+
+    print_cli(f"⏳ 正在并发查询 {len(symbols)} 只股票基本面...")
+    finviz_results = get_finviz_fundamentals_batch(symbols, max_workers=5)
 
     json_results = {}
 
     for symbol in symbols:
         symbol = symbol.upper()
 
-        # IBKR 基本面
+        # IBKR 基本面 (依旧使用串行获取，因为它目前依赖 XML 数据较为单一)
         fund = client.get_fundamentals(symbol)
-        # Finviz 基本面（补充）
-        finviz_fund = get_finviz_fundamentals(symbol)
+        # Finviz 基本面从并发缓存直接读取
+        finviz_fund = finviz_results.get(symbol, {})
 
         if json_output:
             result = {}
@@ -250,12 +290,11 @@ def cmd_fundamentals(args):
             if finviz_fund:
                 print(format_finviz_fundamentals(finviz_fund, symbol))
             elif not fund:
-                print(f"⚠️ {symbol}: IBKR 和 Finviz 均未找到基本面数据")
-            print()
+                print_cli(f"⚠️ {symbol}: IBKR 和 Finviz 均未找到基本面数据")
+            print_cli()
 
     if json_output:
-        import json
-        print(json.dumps(json_results, ensure_ascii=False, indent=2))
+        print_json_resp("fundamentals", json_results)
 
     _safe_disconnect(client)
 
@@ -685,7 +724,7 @@ def cmd_news(args):
     if clean_args[0].lower() == "market":
         market_news = get_finviz_market_news()
         if json_output:
-            print(_json.dumps(market_news, ensure_ascii=False, indent=2, default=str))
+            print_json_resp("news", market_news)
         else:
             print(format_news(market_news.get("news", []), "全市场新闻", limit=20))
             print()
@@ -839,7 +878,7 @@ def cmd_history(args):
             print()
 
     if json_output:
-        print(_json.dumps(json_results, ensure_ascii=False, indent=2))
+        print_json_resp("history", json_results)
 
     _safe_disconnect(client)
 
@@ -868,7 +907,7 @@ def cmd_ratings(args):
 
     if json_output:
         import json
-        print(json.dumps(json_results, ensure_ascii=False, indent=2, default=str))
+        print_json_resp("ratings", json_results)
 
 
 def cmd_insider(args):
@@ -890,7 +929,7 @@ def cmd_insider(args):
         records = get_finviz_insider_market(option)
         if json_output:
             import json
-            print(json.dumps(records, ensure_ascii=False, indent=2, default=str))
+            print_json_resp("insider", records)
         else:
             print(format_insider(records, f"全市场内部人交易 ({option})"))
         return
@@ -907,7 +946,7 @@ def cmd_insider(args):
 
     if json_output:
         import json
-        print(json.dumps(json_results, ensure_ascii=False, indent=2, default=str))
+        print_json_resp("insider", json_results)
 
 
 def cmd_peers(args):
@@ -941,7 +980,7 @@ def cmd_peers(args):
             except Exception:
                 pass
 
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print_json_resp("peers", result)
     else:
         print(format_peers(peers, symbol))
 
@@ -1115,7 +1154,7 @@ def cmd_sizer(args):
             if dataclasses.is_dataclass(o):
                 return dataclasses.asdict(o)
             return str(o)
-        print(_json.dumps(json_results, default=enc, ensure_ascii=False, indent=2))
+        print_json_resp("sizer", json_results)
 
     _safe_disconnect(client)
 
@@ -1196,7 +1235,7 @@ def cmd_sectors(args):
             print(to_json_sectors(report))
         else:
             import json as _json
-            print(_json.dumps({"error": "数据不足"}, ensure_ascii=False))
+            print_json_resp("sectors", {"error": "数据不足"})
     else:
         if report:
             print(format_sector_rotation(report))
@@ -1242,7 +1281,7 @@ def cmd_mtf(args):
             if dataclasses.is_dataclass(o):
                 return dataclasses.asdict(o)
             return str(o)
-        print(_json.dumps(json_results, default=enc, ensure_ascii=False, indent=2))
+        print_json_resp("mtf", json_results)
 
     _safe_disconnect(client)
 
@@ -1291,7 +1330,7 @@ def cmd_chain(args):
 
     if json_output:
         import json as _json
-        print(_json.dumps(data, ensure_ascii=False, indent=2))
+        print_json_resp("chain", data)
     else:
         if "error" in data:
             print(f"⚠️ {data['error']}")

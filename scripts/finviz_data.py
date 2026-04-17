@@ -30,6 +30,28 @@ def get_finviz_fundamentals(symbol: str) -> Dict[str, str]:
         print(f"⚠️ Finviz 基本面获取失败 ({symbol}): {e}")
         return {}
 
+def get_finviz_fundamentals_batch(symbols: List[str], max_workers: int = 5) -> Dict[str, Dict[str, str]]:
+    """并发批量获取多只股票的基本面，极大提升效率"""
+    import concurrent.futures
+    results = {}
+    
+    if not symbols:
+        return results
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_symbol = {executor.submit(get_finviz_fundamentals, sym): sym for sym in symbols}
+        for future in concurrent.futures.as_completed(future_to_symbol):
+            sym = future_to_symbol[future]
+            try:
+                data = future.result()
+                results[sym] = data
+            except Exception as e:
+                print(f"⚠️ {sym} 并发查 Finviz 基本面失败: {e}")
+                results[sym] = {}
+                
+    return results
+
+
 
 def format_finviz_fundamentals(data: Dict[str, str], symbol: str) -> str:
     """格式化 Finviz 基本面数据"""
