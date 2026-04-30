@@ -282,7 +282,8 @@ def screen_seller_options(client, symbol: str, opt_type: str = "P", min_dte: int
         if current_price <= 0:
             continue
             
-        target_list = chain_data.get("puts" if opt_type == "P" else "calls", [])
+        chain_inner = chain_data.get("chain", {})
+        target_list = chain_inner.get("puts" if opt_type == "P" else "calls", [])
         
         for opt in target_list:
             delta = opt.get("delta", 0)

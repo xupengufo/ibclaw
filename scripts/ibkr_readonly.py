@@ -232,9 +232,18 @@ class IBKRReadOnlyClient:
             print(f"❌ 获取期权 ticker 失败: {e}")
             return None
 
-    def search_symbol(self, symbol: str) -> Optional[Contract]:
-        """搜索股票代码，返回 qualified Contract"""
-        contract = Stock(symbol, 'SMART', 'USD')
+    def search_symbol(self, symbol: str, secType: str = 'STK', exchange: str = 'SMART', currency: str = 'USD') -> Optional[Contract]:
+        """搜索股票/指数代码，返回 qualified Contract"""
+        if symbol == 'VIX':
+            contract = Index('VIX', 'CBOE', currency)
+        elif symbol == 'SPX':
+            contract = Index('SPX', 'CBOE', currency)
+        else:
+            if secType == 'IND':
+                contract = Index(symbol, exchange, currency)
+            else:
+                contract = Stock(symbol, exchange, currency)
+                
         try:
             qualified = self.ib.qualifyContracts(contract)
             if qualified:

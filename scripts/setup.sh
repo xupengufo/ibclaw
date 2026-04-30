@@ -70,6 +70,12 @@ copy_runtime_scripts() {
   cp "$REPO_ROOT/scripts/position_sizer.py" "$TRADING_DIR/position_sizer.py"
   cp "$REPO_ROOT/scripts/snapshots.py" "$TRADING_DIR/snapshots.py"
   cp "$REPO_ROOT/scripts/sector_rotation.py" "$TRADING_DIR/sector_rotation.py"
+  cp "$REPO_ROOT/scripts/vix_dashboard.py" "$TRADING_DIR/vix_dashboard.py"
+  cp "$REPO_ROOT/scripts/exit_advisor.py" "$TRADING_DIR/exit_advisor.py"
+  cp "$REPO_ROOT/scripts/stock_compare.py" "$TRADING_DIR/stock_compare.py"
+  cp "$REPO_ROOT/scripts/risk_budget.py" "$TRADING_DIR/risk_budget.py"
+  cp "$REPO_ROOT/scripts/options_flow.py" "$TRADING_DIR/options_flow.py"
+  cp "$REPO_ROOT/scripts/daily_report.py" "$TRADING_DIR/daily_report.py"
   cp "$REPO_ROOT/scripts/ibkr_cli.py" "$TRADING_DIR/ibkr_cli.py"
   chmod +x "$TRADING_DIR/ibkr_readonly.py" "$TRADING_DIR/keepalive.py" "$TRADING_DIR/ibkr_cli.py"
 }

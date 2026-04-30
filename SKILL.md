@@ -123,6 +123,12 @@ cd ~/trading
 | 导出报告/CSV | `./ibkr export all` 或 `./run-report.sh` | |
 | 新闻、为什么涨跌 | `./ibkr news AAPL --json` / `./ibkr news market --json` | |
 | Finviz 交易信号 | `./ibkr screen --signal Oversold --size 10 --json` | |
+| VIX 恐慌指数、市场情绪 | `./ibkr vix --json` | |
+| 止盈止损建议 | `./ibkr exit AAPL --json` | 基于 ATR+支撑阻力+持仓盈亏 |
+| 股票横向对比 | `./ibkr compare AAPL MSFT NVDA --json` | 估值+技术+动量多维对比 |
+| 风险预算评估 | `./ibkr risk --json` | Beta+集中度+现金缓冲综合评分 |
+| 期权异常活动 | `./ibkr flow AAPL --json` | 大单扫描+P/C Ratio 情绪 |
+| 持仓日报 | `./ibkr daily --json` | 每日综合简报+预警 |
 
 > 完整的 CLI 帮助：`./ibkr --help`
 
@@ -301,6 +307,8 @@ cd ~/trading
     当用户问“选几只短线机会”、“这周有什么标的”时触发。禁止凭借旧知识胡编乱造，要求你先跑市场扫雷 (`scanner`) 看异动热点，再调多维选股 (`screen`) 下钻出技术面/基本面良好的 1-2 只个股。
 *   **市场温度盘点 (`/SOP-market-pulse`)**: 
     当用户问“今天大盘这主线在弄啥”时触发。切忌空谈宏观，要求你必须从 SPY/QQQ 真实技术指标，以及全市场的内部人套现/增持汇总 (`insider market`) 中找出实际支撑的论点。
+*   **组合全面体检 (`/SOP-portfolio-checkup`)**:
+    当用户问"帮我体检下组合"、"我的持仓怎么样"、"组合风险分析"时触发。要求你串行获取组合配置+技术面+财报风险+板块轮动，交叉验证后输出完整的组合健康度报告。
 
 ## 健康检查
 

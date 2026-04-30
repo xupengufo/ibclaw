@@ -28,6 +28,7 @@ import os
 import sys
 import traceback
 import json
+import dataclasses
 import time
 
 # 确保能找到同目录的模块
@@ -414,7 +415,7 @@ def cmd_portfolio(args):
             print()
 
     if json_output:
-        print(to_json_portfolio(json_results))
+        print_json_resp("portfolio", json_results)
 
     _safe_disconnect(client)
 
@@ -527,7 +528,7 @@ def cmd_options(args):
             print()
 
     if json_output:
-        print(to_json_options(json_results))
+        print_json_resp("options", json_results)
 
     _safe_disconnect(client)
 
@@ -569,7 +570,7 @@ def cmd_trades(args):
             print()
 
     if json_output:
-        print(to_json_trades(json_results))
+        print_json_resp("trades", json_results)
 
     _safe_disconnect(client)
 
@@ -651,7 +652,7 @@ def cmd_scanner(args):
     )
     
     if json_output:
-        print(to_json_scan_results(results))
+        print_json_resp("scanner", results)
     else:
         print(format_scan_results(results, scan_target))
         
@@ -710,7 +711,6 @@ def cmd_watchlist(args):
 def cmd_news(args):
     """查询公司新闻（Yahoo RSS + Finviz 双源合并）"""
     from finviz_data import get_finviz_news, get_finviz_market_news, format_news
-    import json as _json
 
     json_output = "--json" in args
     clean_args = [a for a in args if a != "--json"]
@@ -772,11 +772,11 @@ def cmd_news(args):
             unique_news.append(item)
 
     if json_output:
-        print(_json.dumps({
+        print_json_resp("news", {
             "symbol": symbol,
             "count": len(unique_news[:limit]),
             "news": unique_news[:limit]
-        }, ensure_ascii=False, indent=2, default=str))
+        })
     elif unique_news:
         print(f"📰 {symbol} 最新新闻 (Yahoo + Finviz, 共 {len(unique_news)} 条):")
         print("=" * 65)
@@ -845,8 +845,6 @@ def cmd_history(args):
     if not symbols:
         print("❌ 请指定至少一个股票代码")
         sys.exit(1)
-
-    import json as _json
 
     client = _connect_client()
     json_results = {}
@@ -1049,7 +1047,7 @@ def cmd_screen(args):
     )
 
     if json_output:
-        print(to_json_screen_results(results))
+        print_json_resp("screen", results)
     else:
         print(format_screen_results(results, filters, signal))
 
@@ -1081,7 +1079,7 @@ def cmd_earnings(args):
                 print()
 
         if json_output:
-            print(to_json_earnings(json_results))
+            print_json_resp("earnings", json_results)
     else:
         # 组合模式
         client = _connect_client()
@@ -1091,7 +1089,7 @@ def cmd_earnings(args):
 
         if json_output:
             risk = get_earnings_risk_summary(events)
-            print(to_json_earnings({"events": events, "risk_summary": risk}))
+            print_json_resp("earnings", {"events": events, "risk_summary": risk})
         else:
             print(format_portfolio_earnings(events))
 
@@ -1148,8 +1146,6 @@ def cmd_sizer(args):
             print()
 
     if json_output:
-        import json as _json
-        import dataclasses
         def enc(o):
             if dataclasses.is_dataclass(o):
                 return dataclasses.asdict(o)
@@ -1192,7 +1188,7 @@ def cmd_snapshot(args):
 
         perf = calc_snapshot_performance(snapshots)
         if json_output:
-            print(to_json_snapshots(perf or {"error": "数据不足"}))
+            print_json_resp("snapshot", perf or {"error": "数据不足"})
         else:
             print(format_snapshot_performance(perf))
 
@@ -1200,7 +1196,7 @@ def cmd_snapshot(args):
         snapshots = load_recent_snapshots(1)
         if snapshots:
             if json_output:
-                print(to_json_snapshots(snapshots[-1]))
+                print_json_resp("snapshot", snapshots[-1])
             else:
                 print(format_snapshot_summary(snapshots[-1]))
         else:
@@ -1232,9 +1228,8 @@ def cmd_sectors(args):
 
     if json_output:
         if report:
-            print(to_json_sectors(report))
+            print_json_resp("sectors", report)
         else:
-            import json as _json
             print_json_resp("sectors", {"error": "数据不足"})
     else:
         if report:
@@ -1275,8 +1270,6 @@ def cmd_mtf(args):
             print()
 
     if json_output:
-        import json as _json
-        import dataclasses
         def enc(o):
             if dataclasses.is_dataclass(o):
                 return dataclasses.asdict(o)
@@ -1329,7 +1322,6 @@ def cmd_chain(args):
     data = client.get_option_chain_data(symbol, expiry=expiry, strike_range=strike_range)
 
     if json_output:
-        import json as _json
         print_json_resp("chain", data)
     else:
         if "error" in data:
@@ -1377,6 +1369,179 @@ def cmd_chain(args):
     _safe_disconnect(client)
 
 
+def cmd_vix(args):
+    """VIX 恐慌指数仪表盘"""
+    from vix_dashboard import analyze_vix, format_vix_dashboard
+
+    json_output = "--json" in args
+
+    client = _connect_client()
+    dashboard = analyze_vix(client)
+
+    if json_output:
+        if dashboard:
+            print_json_resp("vix", dashboard)
+        else:
+            print_json_resp("vix", {"error": "VIX 数据获取失败"})
+    else:
+        if dashboard:
+            print(format_vix_dashboard(dashboard))
+        else:
+            print("⚠️ 无法获取 VIX 数据")
+
+    _safe_disconnect(client)
+
+
+def cmd_exit(args):
+    """智能止盈止损建议"""
+    from exit_advisor import calc_exit_levels, format_exit_advice
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    if not clean_args:
+        print("用法: python ibkr_cli.py exit SYMBOL [--json]")
+        print("示例: python ibkr_cli.py exit AAPL --json")
+        return
+
+    symbol = clean_args[0].upper()
+
+    client = _connect_client()
+    advice = calc_exit_levels(client, symbol)
+
+    if json_output:
+        if advice:
+            print_json_resp("exit", advice)
+        else:
+            print_json_resp("exit", {"error": f"{symbol} 数据不足"})
+    else:
+        if advice:
+            print(format_exit_advice(advice))
+        else:
+            print(f"⚠️ {symbol}: 历史数据不足，无法生成建议")
+
+    _safe_disconnect(client)
+
+
+def cmd_compare(args):
+    """股票对比分析"""
+    from stock_compare import compare_stocks, format_comparison
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    if len(clean_args) < 2:
+        print("用法: python ibkr_cli.py compare AAPL MSFT NVDA [--json]")
+        print("  至少需要 2 只股票进行对比")
+        return
+
+    symbols = [s.upper() for s in clean_args]
+
+    client = _connect_client()
+    report = compare_stocks(client, symbols)
+
+    if json_output:
+        if report:
+            print_json_resp("compare", report)
+        else:
+            print_json_resp("compare", {"error": "对比分析失败"})
+    else:
+        if report:
+            print(format_comparison(report))
+        else:
+            print("⚠️ 对比分析失败：数据不足")
+
+    _safe_disconnect(client)
+
+
+def cmd_risk(args):
+    """风险预算计算器"""
+    from risk_budget import calc_risk_budget, format_risk_budget
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    # 支持 --tolerance 参数
+    tolerance = 20.0
+    for i, a in enumerate(clean_args):
+        if a == "--tolerance" and i + 1 < len(clean_args):
+            try:
+                tolerance = float(clean_args[i + 1])
+            except ValueError:
+                pass
+
+    client = _connect_client()
+    report = calc_risk_budget(client, max_risk_tolerance=tolerance)
+
+    if json_output:
+        if report:
+            print_json_resp("risk", report)
+        else:
+            print_json_resp("risk", {"error": "无持仓数据"})
+    else:
+        if report:
+            print(format_risk_budget(report))
+        else:
+            print("⚠️ 无持仓数据")
+
+    _safe_disconnect(client)
+
+
+def cmd_flow(args):
+    """期权异常活动扫描"""
+    from options_flow import scan_unusual_options, format_unusual_options
+
+    json_output = "--json" in args
+    clean_args = [a for a in args if a != "--json"]
+
+    if not clean_args:
+        print("用法: python ibkr_cli.py flow AAPL [--json]")
+        return
+
+    symbol = clean_args[0].upper()
+
+    client = _connect_client()
+    report = scan_unusual_options(client, symbol)
+
+    if json_output:
+        if report:
+            print_json_resp("flow", report)
+        else:
+            print_json_resp("flow", {"error": f"{symbol} 期权数据获取失败"})
+    else:
+        if report:
+            print(format_unusual_options(report))
+        else:
+            print(f"⚠️ {symbol}: 无法获取期权数据")
+
+    _safe_disconnect(client)
+
+
+def cmd_daily(args):
+    """持仓日报"""
+    from daily_report import generate_daily_report, format_daily_report
+
+    json_output = "--json" in args
+
+    client = _connect_client()
+    if not json_output:
+        print("⏳ 正在生成投资日报...")
+    report = generate_daily_report(client)
+
+    if json_output:
+        if report:
+            print_json_resp("daily", report)
+        else:
+            print_json_resp("daily", {"error": "无持仓数据"})
+    else:
+        if report:
+            print(format_daily_report(report))
+        else:
+            print("⚠️ 无持仓数据")
+
+    _safe_disconnect(client)
+
+
 # ─── 主入口 ────────────────────────────────────────────────────
 
 COMMANDS = {
@@ -1402,6 +1567,12 @@ COMMANDS = {
     "watchlist": ("Watchlist: watchlist [list|add|remove] SYMBOL", cmd_watchlist),
     "news": ("公司新闻(Yahoo+Finviz): news AAPL / news market", cmd_news),
     "export": ("数据导出: export [all|portfolio|allocation|report]", cmd_export),
+    "vix": ("VIX恐慌指数: vix [--json]", cmd_vix),
+    "exit": ("止盈止损建议: exit AAPL [--json]", cmd_exit),
+    "compare": ("股票对比: compare AAPL MSFT NVDA [--json]", cmd_compare),
+    "risk": ("风险预算: risk [--tolerance 20] [--json]", cmd_risk),
+    "flow": ("期权异常活动: flow AAPL [--json]", cmd_flow),
+    "daily": ("持仓日报: daily [--json]", cmd_daily),
 }
 
 

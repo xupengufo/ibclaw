@@ -82,6 +82,16 @@ class ATRData:
 
 
 @dataclass
+class VWAPData:
+    """VWAP (Volume Weighted Average Price) — 成交量加权平均价"""
+    vwap: float = 0.0               # VWAP 值
+    vwap_upper: float = 0.0         # VWAP + 1 标准差
+    vwap_lower: float = 0.0         # VWAP - 1 标准差
+    position: str = ""              # "上方" / "下方" / "附近"
+    signal: str = ""                # "价格高于VWAP(偏强)" / "价格低于VWAP(偏弱)"
+
+
+@dataclass
 class TechnicalSummary:
     """综合技术分析"""
     symbol: str
@@ -93,6 +103,7 @@ class TechnicalSummary:
     support_resistance: SupportResistance
     volume: VolumeAnalysis
     atr: ATRData = field(default_factory=ATRData)
+    vwap: VWAPData = field(default_factory=VWAPData)
     overall_signal: str = ""    # "强烈看多" / "看多" / "中性" / "看空" / "强烈看空"
     score: int = 0              # -100 ~ +100 综合评分
     key_observations: List[str] = field(default_factory=list)
@@ -403,6 +414,60 @@ def calc_atr(bars: List[dict], period: int = 14) -> ATRData:
     )
 
 
+def calc_vwap(bars: List[dict]) -> VWAPData:
+    """
+    计算 VWAP (Volume Weighted Average Price)
+    VWAP = Σ(Typical Price × Volume) / Σ(Volume)
+    Typical Price = (High + Low + Close) / 3
+    同时计算 VWAP ± 1 标准差带
+    """
+    if not bars or len(bars) < 5:
+        return VWAPData()
+
+    cum_tp_vol = 0.0
+    cum_vol = 0
+    tp_list = []
+
+    for b in bars:
+        tp = (b["high"] + b["low"] + b["close"]) / 3
+        vol = b["volume"]
+        cum_tp_vol += tp * vol
+        cum_vol += vol
+        tp_list.append(tp)
+
+    if cum_vol == 0:
+        return VWAPData()
+
+    vwap = cum_tp_vol / cum_vol
+
+    # 标准差带
+    variance = sum((tp - vwap) ** 2 * b["volume"] for tp, b in zip(tp_list, bars)) / cum_vol
+    std = math.sqrt(variance) if variance > 0 else 0
+    upper = vwap + std
+    lower = vwap - std
+
+    current = bars[-1]["close"]
+    dist_pct = (current - vwap) / vwap * 100 if vwap > 0 else 0
+
+    if dist_pct > 2:
+        position = "📈 上方"
+        signal = f"价格高于 VWAP {dist_pct:.1f}%（偏强，机构买盘活跃）"
+    elif dist_pct < -2:
+        position = "📉 下方"
+        signal = f"价格低于 VWAP {abs(dist_pct):.1f}%（偏弱，卖压主导）"
+    else:
+        position = "➡️ 附近"
+        signal = f"价格接近 VWAP（±{abs(dist_pct):.1f}%，均衡区域）"
+
+    return VWAPData(
+        vwap=round(vwap, 2),
+        vwap_upper=round(upper, 2),
+        vwap_lower=round(lower, 2),
+        position=position,
+        signal=signal
+    )
+
+
 # ─── 综合分析 ─────────────────────────────────────────────────
 
 def calc_technical_score(ma: MovingAverages, rsi: RSIData, macd: MACDData,
@@ -523,6 +588,7 @@ def analyze_symbol(client, symbol: str, period: str = "1 Y", bar_size: str = "1 
     sr = calc_support_resistance(bars)
     vol = calc_volume_analysis(bars)
     atr = calc_atr(bars)
+    vwap = calc_vwap(bars)
 
     score, signal, observations = calc_technical_score(ma, rsi, macd, bb, vol, current)
 
@@ -536,6 +602,7 @@ def analyze_symbol(client, symbol: str, period: str = "1 Y", bar_size: str = "1 
         support_resistance=sr,
         volume=vol,
         atr=atr,
+        vwap=vwap,
         overall_signal=signal,
         score=score,
         key_observations=observations
@@ -822,6 +889,13 @@ def format_technical_summary(ts: TechnicalSummary) -> str:
     if ts.atr.atr_14 > 0:
         lines.append(f"  📐 ATR(14): ${ts.atr.atr_14:,.2f}  "
                      f"占价比={ts.atr.atr_pct:.2f}%  {ts.atr.signal}")
+
+    # VWAP
+    if ts.vwap.vwap > 0:
+        lines.append(f"  📍 VWAP: {_fmt_price(ts.vwap.vwap)}  "
+                     f"上带={_fmt_price(ts.vwap.vwap_upper)}  "
+                     f"下带={_fmt_price(ts.vwap.vwap_lower)}  {ts.vwap.position}")
+        lines.append(f"     {ts.vwap.signal}")
 
     # 支撑阻力
     sr = ts.support_resistance

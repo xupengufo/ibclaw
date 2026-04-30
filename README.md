@@ -264,7 +264,7 @@ ibclaw/
 │   ├── portfolio_analytics.py # 组合分析 + 绩效追踪
 │   ├── options_analytics.py  # 期权分析 (Greeks/到期日历/期权链)
 │   ├── trade_review.py       # 交易复盘 (胜率/盈亏比)
-│   ├── alerts.py             # 主动告警 (Telegram 推送+财报预警)
+
 │   ├── scanner_enhanced.py   # 增强扫描器 + Watchlist
 │   ├── technical_analysis.py # 技术分析 (SMA/RSI/MACD/BB/ATR/多周期共振)
 │   ├── finviz_data.py        # Finviz 数据模块 (基本面/评级/新闻)
@@ -273,12 +273,19 @@ ibclaw/
 │   ├── position_sizer.py     # 🧮 仓位计算器 (ATR止损)
 │   ├── snapshots.py          # 📸 组合历史快照
 │   ├── sector_rotation.py    # 🌍 板块轮动监控 (11 SPDR ETFs)
+│   ├── vix_dashboard.py     # 😱 VIX 恐慌指数仪表盘
+│   ├── exit_advisor.py      # 🎯 智能止盈止损建议器
+│   ├── stock_compare.py     # ⚔️ 股票对比分析
+│   ├── risk_budget.py       # 🏛️ 风险预算计算器
+│   ├── options_flow.py      # 🔍 期权异常活动扫描
+│   ├── daily_report.py      # 📋 持仓日报生成器
 │   └── export.py             # 数据导出 (CSV/报告 → ~/trading/exports/)
 ├── .agent/
 │   └── workflows/            # Agent SOP 工作流
 │       ├── SOP-stock-xray.md     # 个股深度诊断
 │       ├── SOP-short-term-hunter.md  # 短线异动海选
-│       └── SOP-market-pulse.md   # 市场全景体检
+│       ├── SOP-market-pulse.md   # 市场全景体检
+│       └── SOP-portfolio-checkup.md  # 组合全面体检
 └── references/
     ├── api-endpoints.md      # ib_async API 参考
     ├── scanner-types.md      # 扫描策略参考
@@ -297,7 +304,7 @@ ibclaw/
 ├── portfolio_analytics.py    # 组合分析模块
 ├── options_analytics.py     # 期权分析模块
 ├── trade_review.py          # 交易复盘模块
-├── alerts.py                # 主动告警模块（含财报预警）
+
 ├── scanner_enhanced.py      # 增强扫描器 + Watchlist
 ├── technical_analysis.py    # 技术分析模块（含多周期共振）
 ├── finviz_data.py           # Finviz 数据模块
@@ -306,13 +313,19 @@ ibclaw/
 ├── position_sizer.py        # 🧮 仓位计算器
 ├── snapshots.py             # 📸 组合快照模块
 ├── sector_rotation.py       # 🌍 板块轮动模块
+├── vix_dashboard.py         # 😱 VIX 恐慌指数仪表盘
+├── exit_advisor.py          # 🎯 智能止盈止损建议器
+├── stock_compare.py         # ⚔️ 股票对比分析
+├── risk_budget.py           # 🏛️ 风险预算计算器
+├── options_flow.py          # 🔍 期权异常活动扫描
+├── daily_report.py          # 📋 持仓日报生成器
 ├── export.py                # 数据导出模块
 ├── exports/                 # 📂 导出文件目录（CSV/报告）
 ├── snapshots/               # 📸 组合快照存档目录
 ├── venv/                    # Python 虚拟环境
 ├── run-readonly.sh          # 一键运行主查询脚本
 ├── run-keepalive.sh         # 一键运行健康检查
-├── run-alerts.sh            # 一键运行告警检查
+
 ├── run-report.sh            # 一键生成投资报告
 ├── run-snapshot.sh          # 一键保存组合快照
 └── ...                      # 日志、状态文件等

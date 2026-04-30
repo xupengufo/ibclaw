@@ -33,6 +33,73 @@
         {"name": "含拒绝下单免责", "text": "由于是只读技能，必需说明系统不支持直接下单或执行交易"},
         {"name": "含期权 Greeks", "text": "解释了 Delta, Gamma, Theta 或相应的期权概念，来作为分析辅助"}
       ]
+    },
+    {
+      "id": 4,
+      "eval_name": "期权卖方筛选",
+      "prompt": "我想做AAPL的卖PUT策略，帮我找找合适的合约",
+      "expected_output": "应使用 options seller 命令筛选 AAPL 的 OTM put 期权，展示年化收益、安全垫、Theta 衰减等关键卖方指标。",
+      "files": [],
+      "assertions": [
+        {"name": "含年化收益", "text": "输出中包含年化收益率(annualized yield)数据"},
+        {"name": "含安全垫", "text": "输出中包含安全垫(cushion)或距行权价距离的分析"},
+        {"name": "含风险提示", "text": "提醒用户卖PUT的潜在风险（如股价大幅下跌时的损失）"}
+      ]
+    },
+    {
+      "id": 5,
+      "eval_name": "财报日历风险预警",
+      "prompt": "我持仓的股票近期有没有要发财报的？",
+      "expected_output": "应使用 earnings portfolio 命令获取持仓财报日历，按紧急程度排列，标注7天内和14天内的财报事件。",
+      "files": [],
+      "assertions": [
+        {"name": "含时间分类", "text": "输出按紧急度分类了财报事件（如本周、两周内等）"},
+        {"name": "含操作建议", "text": "对临近财报的持仓给出了风险管理建议（如是否考虑减仓、对冲等）"}
+      ]
+    },
+    {
+      "id": 6,
+      "eval_name": "板块轮动分析",
+      "prompt": "最近哪些板块在走强？哪些在走弱？",
+      "expected_output": "应使用 sectors 命令获取11个SPDR板块ETF的表现数据，按动量排名展示板块强弱轮动格局。",
+      "files": [],
+      "assertions": [
+        {"name": "含板块排名", "text": "输出按强弱排列了主要板块（如科技、医疗、能源等）"},
+        {"name": "含时间周期", "text": "分析覆盖了至少一个时间周期（1周/1月/3月）的表现数据"}
+      ]
+    },
+    {
+      "id": 7,
+      "eval_name": "多周期共振分析",
+      "prompt": "NVDA现在的技术面怎么样？各周期信号一致吗？",
+      "expected_output": "应使用 mtf 命令执行 NVDA 的多周期共振分析，展示周线、日线、60分钟线的信号一致性。",
+      "files": [],
+      "assertions": [
+        {"name": "含多周期数据", "text": "输出包含周线、日线、小时线三个维度的技术信号"},
+        {"name": "含共振度判断", "text": "给出了共振度评分或方向一致性判断（如多头共振、多空分歧等）"}
+      ]
+    },
+    {
+      "id": 8,
+      "eval_name": "IB Gateway 断连降级",
+      "prompt": "帮我查一下TSLA的基本面",
+      "expected_output": "如果 IB Gateway 未连接，应优雅降级到 Finviz 数据源获取基本面数据，而不是直接报错终止。",
+      "files": [],
+      "assertions": [
+        {"name": "含基本面数据", "text": "即使IB Gateway离线，也应通过Finviz或其他数据源返回TSLA的基本面信息"},
+        {"name": "含数据源标注", "text": "明确标注了数据来源（如'来源: Finviz'）"}
+      ]
+    },
+    {
+      "id": 9,
+      "eval_name": "组合体检SOP触发",
+      "prompt": "帮我全面体检一下我的投资组合",
+      "expected_output": "应触发 /SOP-portfolio-checkup 工作流，串行获取组合配置、技术面、财报风险等数据，输出结构化的组合健康度报告。",
+      "files": [],
+      "assertions": [
+        {"name": "含多维度分析", "text": "报告覆盖了配置分析、风险评估、绩效归因、技术面强弱等多个维度"},
+        {"name": "含改进建议", "text": "基于数据分析给出了具体可操作的组合改善建议"}
+      ]
     }
   ]
 }

@@ -104,13 +104,18 @@ def get_portfolio_allocation(client) -> Dict[str, List[AllocationItem]]:
     stock_total = sum(abs(p.market_value) for p in stock_positions)
 
     sector_groups: Dict[str, dict] = {}
+
+    # 使用 Finviz 批量并发获取 sector（比逐个调 IBKR get_fundamentals 快 N 倍）
+    try:
+        from finviz_data import get_finviz_fundamentals_batch
+        symbols = [p.symbol for p in stock_positions]
+        finviz_batch = get_finviz_fundamentals_batch(symbols, max_workers=5)
+    except Exception:
+        finviz_batch = {}
+
     for p in stock_positions:
-        # 尝试获取基本面中的 sector 信息
-        try:
-            fund = client.get_fundamentals(p.symbol)
-            sector = fund.sector or fund.industry or "未知"
-        except Exception:
-            sector = "未知"
+        finviz_data = finviz_batch.get(p.symbol, {})
+        sector = finviz_data.get("Sector", "") or finviz_data.get("Industry", "") or "未知"
         if sector not in sector_groups:
             sector_groups[sector] = {"value": 0.0, "count": 0}
         sector_groups[sector]["value"] += abs(p.market_value)
@@ -217,12 +222,20 @@ def get_portfolio_beta(client, benchmark: str = "SPY", period: str = "6 M") -> O
     portfolio_beta = 0.0
     processed = []
 
+    # 批量并发获取所有持仓的历史数据
+    symbols = [p.symbol for p in stock_positions]
+    batch_fetch = getattr(client, "get_historical_data_batch", None)
+    if batch_fetch:
+        all_bars = client.get_historical_data_batch(symbols, duration=period, bar_size="1 day")
+    else:
+        all_bars = {sym: client.get_historical_data(sym, duration=period, bar_size="1 day") for sym in symbols}
+
     for p in stock_positions:
         weight = abs(p.market_value) / total_value
+        bars = all_bars.get(p.symbol, [])
+        if len(bars) < 20:
+            continue
         try:
-            bars = client.get_historical_data(p.symbol, duration=period, bar_size="1 day")
-            if len(bars) < 20:
-                continue
             stock_returns = _calc_daily_returns(bars)
 
             # 对齐长度
@@ -264,14 +277,19 @@ def get_correlation_matrix(client, period: str = "3 M") -> Optional[dict]:
     symbols = []
     returns_map = {}
 
-    for p in stock_positions[:15]:  # 限制数量避免过多 API 调用
-        try:
-            bars = client.get_historical_data(p.symbol, duration=period, bar_size="1 day")
-            if len(bars) >= 20:
-                returns_map[p.symbol] = _calc_daily_returns(bars)
-                symbols.append(p.symbol)
-        except Exception:
-            continue
+    # 批量并发获取历史数据
+    target_symbols = [p.symbol for p in stock_positions[:15]]
+    batch_fetch = getattr(client, "get_historical_data_batch", None)
+    if batch_fetch:
+        all_bars = client.get_historical_data_batch(target_symbols, duration=period, bar_size="1 day")
+    else:
+        all_bars = {sym: client.get_historical_data(sym, duration=period, bar_size="1 day") for sym in target_symbols}
+
+    for sym in target_symbols:
+        bars = all_bars.get(sym, [])
+        if len(bars) >= 20:
+            returns_map[sym] = _calc_daily_returns(bars)
+            symbols.append(sym)
 
     if len(symbols) < 2:
         return None
